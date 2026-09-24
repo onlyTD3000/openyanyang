@@ -1,0 +1,320 @@
+package cn.bot77.yanyang
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Button
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
+import cn.bot77.yanyang.media.声设置
+import cn.bot77.yanyang.media.提示音
+import cn.bot77.yanyang.ui.主状态
+import cn.bot77.yanyang.ui.岩羊主题
+import cn.bot77.yanyang.ui.屏幕
+import cn.bot77.yanyang.ui.代码仓页
+import cn.bot77.yanyang.ui.工作中心页
+import cn.bot77.yanyang.ui.对话页
+import cn.bot77.yanyang.ui.充值页
+import cn.bot77.yanyang.ui.登录页
+import cn.bot77.yanyang.data.SSHHost
+import cn.bot77.yanyang.data.SSHHostForm
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+class 主界面 : ComponentActivity() {
+    override fun onCreate(saved: Bundle?) {
+        super.onCreate(saved)
+        enableEdgeToEdge()
+        setContent {
+            岩羊主题 {
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    根界面()
+                }
+            }
+        }
+    }
+}
+/** 密钥仓要从 Application 拿，所以 ViewModel 得走工厂构造 */
+private class 状态工厂 : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(clazz: Class<T>): T =
+        主状态(岩羊应用.实例.密钥存储) as T
+}
+@Composable
+private fun 根界面() {
+    val 状态: 主状态 = viewModel(factory = 状态工厂())
+    // 提示音在这一层响，不在对话页里响：对话页只在 当前屏==对话 时被组合，
+    // 用户停在代码仓或充值页时那边的 LaunchedEffect 根本不存在，信号自增了
+    // 也没人播。放在根界面就跟页面无关，任何页面都能听到。
+    全局提示音(状态)
+    when (状态.当前屏.value) {
+        屏幕.登录 -> 登录页(状态)
+        屏幕.对话 -> 对话页(状态)
+        屏幕.代码仓 -> 代码仓页(状态)
+        屏幕.工作中心 -> 工作中心页(状态)
+        屏幕.服务器登记 -> 服务器登记页(状态)
+        屏幕.充值 -> 充值页(状态)
+        // 这两页还没做，占位渲染对话页。注意 当前屏 此时不是 对话，
+        // 对话页里那个 BackHandler 只在抽屉打开时生效，所以要在这儿
+        // 单独拦一道返回键，否则会越过返回栈直接退出应用
+        屏幕.用量, 屏幕.个人资料 -> {
+            BackHandler { 状态.按返回() }
+            对话页(状态)
+        }
+    }
+}
+/**
+ * 全局提示音监听。不渲染任何东西，只在信号变大时把声音放出来。
+ *
+ * 判重用主状态里的 响过号 而不是 remember：页面切换会销毁重建这个
+ * Composable，remember 的初值会跟着当下信号走，中间漏掉的一声就丢了。
+ *
+ * 开关和音量每次响之前现读一遍 SharedPreferences：用户可能刚在设置面板
+ * 改过，缓存在 remember 里会用到旧值。一次读取开销可以忽略。
+ */
+@Composable
+private fun 全局提示音(状态: 主状态) {
+    val 上下文 = LocalContext.current
+    val 信号 = 状态.提示音信号.value
+    LaunchedEffect(信号) {
+        if (信号 > 状态.响过号) {
+            状态.响过号 = 信号
+            val 用户id = 状态.我的.value.id.toString()
+            if (声设置.开着(上下文, 用户id)) {
+                提示音.响(上下文, 声设置.音量(上下文, 用户id))
+            }
+        }
+    }
+}
+/**
+ * 服务器登记页。目前列出已登记的服务器并支持添删。
+ * 复刻 Web 端的 /admin/servers.php 核心交互。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun 服务器登记页(状态: 主状态) {
+    // 返回键回上一页，不退出应用
+    BackHandler { 状态.按返回() }
+    val 内边距 by remember { mutableStateOf(16.dp) }
+    var 显编辑 by remember { mutableStateOf(false) }
+    var 编辑表单 by remember { mutableStateOf(SSHHostForm()) }
+    var 要删的服务器 by remember { mutableStateOf<SSHHost?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(状态.提示.value) {
+        if (状态.提示.value.isNotBlank()) {
+            snackbarHostState.showSnackbar(状态.提示.value)
+        }
+    }
+    Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = { Text("登记服务器") },
+                navigationIcon = {
+                    IconButton(onClick = { 状态.回对话() }) {
+                        Icon(Icons.Filled.ArrowBack, "返回对话")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = {
+                        编辑表单 = SSHHostForm()
+                        显编辑 = true
+                    }) {
+                        Icon(Icons.Filled.Add, contentDescription = "添加")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        LazyColumn(
+            modifier = Modifier.padding(paddingValues),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            items(状态.服务器表, key = { it.id }) { 服务器 ->
+                var 显详情 by remember { mutableStateOf(false) }
+                Card(
+                    onClick = { 显详情 = !显详情 },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(Modifier.weight(1f)) {
+                                Text(服务器.名称, style = MaterialTheme.typography.titleMedium)
+                                Text("${服务器.地址}:${服务器.端口}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            IconButton(onClick = { 要删的服务器 = 服务器 }) {
+                                Icon(Icons.Filled.Delete, "删除", tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        if (显详情) {
+                            Spacer(Modifier.height(8.dp))
+                            Text("用户: ${服务器.用户名}", style = MaterialTheme.typography.bodyMedium)
+                            Text("认证: ${服务器.认证方式}", style = MaterialTheme.typography.bodyMedium)
+                            Spacer(Modifier.height(8.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                TextButton(onClick = {
+                                    状态.测试服务器(服务器.id)
+                                    状态.提示.value = "正在测试连接..."
+                                }) { Text("连接测试") }
+                                Spacer(Modifier.width(8.dp))
+                                TextButton(onClick = {
+                                    编辑表单 = SSHHostForm(
+                                        id = 服务器.id,
+                                        名称 = 服务器.名称,
+                                        地址 = 服务器.地址,
+                                        端口 = 服务器.端口.toString(),
+                                        用户名 = 服务器.用户名,
+                                        认证方式 = 服务器.认证方式,
+                                        凭据 = "",
+                                        口令 = ""
+                                    )
+                                    显编辑 = true
+                                }) { Text("编辑") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // 添加/编辑对话框
+    if (显编辑) {
+        var 名称 by remember(显编辑) { mutableStateOf(编辑表单.名称) }
+        var 地址 by remember(显编辑) { mutableStateOf(编辑表单.地址) }
+        var 端口 by remember(显编辑) { mutableStateOf(编辑表单.端口) }
+        var 用户名 by remember(显编辑) { mutableStateOf(编辑表单.用户名) }
+        var 认证方式 by remember(显编辑) { mutableStateOf(编辑表单.认证方式) }
+        var 凭据 by remember(显编辑) { mutableStateOf(编辑表单.凭据) }
+        var 口令 by remember(显编辑) { mutableStateOf(编辑表单.口令) }
+        var 展认证 by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { 显编辑 = false },
+            title = { Text(if (编辑表单.id.isBlank()) "添加服务器" else "编辑服务器") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
+                    OutlinedTextField(名称, { 名称 = it }, label = { Text("名称") }, singleLine = true)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(地址, { 地址 = it }, label = { Text("地址") }, singleLine = true)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(端口, { 端口 = it }, label = { Text("端口") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(用户名, { 用户名 = it }, label = { Text("用户名") }, singleLine = true)
+                    Spacer(Modifier.height(8.dp))
+                    Box {
+                        OutlinedTextField(
+                            value = 认证方式,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("认证方式") },
+                            modifier = Modifier.fillMaxWidth().clickable { 展认证 = true },
+                            trailingIcon = {
+                                Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+                            }
+                        )
+                        DropdownMenu(expanded = 展认证, onDismissRequest = { 展认证 = false }) {
+                            val 选项列表 = listOf("key" to "密钥", "password" to "密码")
+                            for ((值, 标签) in 选项列表) {
+                                DropdownMenuItem(
+                                    text = { Text(标签) },
+                                    onClick = { 认证方式 = 值; 展认证 = false }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (认证方式 == "password") {
+                        OutlinedTextField(口令, { 口令 = it }, label = { Text("密码") }, singleLine = true)
+                    } else {
+                        OutlinedTextField(凭据, { 凭据 = it }, label = { Text("密钥文件路径") }, singleLine = true)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    状态.保存服务器(SSHHostForm(
+                        id = 编辑表单.id,
+                        名称 = 名称,
+                        地址 = 地址,
+                        端口 = 端口,
+                        用户名 = 用户名,
+                        认证方式 = 认证方式,
+                        凭据 = 凭据,
+                        口令 = 口令
+                    ))
+                    显编辑 = false
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { 显编辑 = false }) { Text("取消") }
+            }
+        )
+    }
+    // 删除确认
+    要删的服务器?.let { 删 ->
+        AlertDialog(
+            onDismissRequest = { 要删的服务器 = null },
+            title = { Text("删除服务器") },
+            text = { Text("确定要删除「${删.名称}」吗？此操作无法撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    状态.删服务器(删.id)
+                    要删的服务器 = null
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { 要删的服务器 = null }) { Text("取消") }
+            }
+        )
+    }
+}
+

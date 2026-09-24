@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<!-- style-src 必须带 'unsafe-inline'，不能去掉。
+     <webview> 插进 DOM 时 Chromium 会在它的 shadow DOM 里建一个 iframe 承载 guest，
+     那个 iframe 的尺寸由浏览器自己用行内样式写。少了 unsafe-inline 就会被拦，
+     控制台报 "Refused to apply inline style"，指向 appendChild(webview) 那一行。
+     后果是 guest 通过 IPC 拿到的视口尺寸是对的（诊断能读出 390×844），
+     但承载它的 iframe 没尺寸，实际渲染塌掉，画面和诊断数字对不上。
+     这是设备预览排查了九个版本的根因，改 JS 修不到，只能在这里放开。
+     风险可接受：本窗口只加载本地文件，不注入远程内容；预览的远程页面跑在
+     独立 guest 进程里，用它自己的 CSP，和这一条无关。 -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'">
+<title>岩羊Ai</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="local_card.js" defer></script>
+</head>
+<body>
+<!-- 自定义标题栏。主进程用了 frame: false，这条就是原来那根 Windows 边框。
+     拖动靠 CSS 的 -webkit-app-region: drag，按钮区要单独标 no-drag，
+     否则点按钮会被当成拖窗口。 -->
+<div id="标题栏" class="标题栏">
+  <div class="标题栏左">
+    <!-- 图标用 CSS 画。renderer 下没有 png，build/icon.ico 是打包用的，
+         CSP 的 img-src 也只允许 self，跨目录引用会被拦。 -->
+    <span class="标题栏图标" aria-hidden="true">✦</span>
+    <span class="标题栏名">岩羊Ai</span>
+    <!-- 服务器登记从侧栏底部挪到这里。带文字，第一次用的人看得懂 -->
+    <button id="服务器钮" class="标题栏钮 隐藏" type="button">服务器登记</button>
+    <!-- 预览栏开关。默认打开当前项目的 site_url，看自己写的网站现在什么样 -->
+    <button id="预览钮" class="标题栏钮 隐藏" type="button"
+            title="打开预览栏，浏览网站效果" aria-pressed="false">预览</button>
+  </div>
+  <div class="窗口控制">
+    <button id="最小化钮" class="窗控钮" type="button" title="最小化" aria-label="最小化">
+      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+        <path d="M0 5h10" stroke="currentColor" stroke-width="1" fill="none"/>
+      </svg>
+    </button>
+    <button id="最大化钮" class="窗控钮" type="button" title="最大化" aria-label="最大化">
+      <svg id="最大化图" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+        <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" stroke-width="1" fill="none"/>
+      </svg>
+      <svg id="还原图" class="隐藏" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+        <rect x="0.5" y="2.5" width="7" height="7" stroke="currentColor" stroke-width="1" fill="none"/>
+        <path d="M2.5 2.5V0.5h7v7h-2" stroke="currentColor" stroke-width="1" fill="none"/>
+      </svg>
+    </button>
+    <button id="关闭钮" class="窗控钮 关闭" type="button" title="关闭" aria-label="关闭">
+      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+        <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1" fill="none"/>
+      </svg>
+    </button>
+  </div>
+</div>
+<div id="登录页" class="登录页">
+  <div class="登录卡">
+    <h1>岩羊Ai</h1>
+    <p class="副标">用网页端个人中心生成的 API 密钥登录</p>
+    <label for="密钥框" class="标签">API 密钥</label>
+    <input id="密钥框" type="password" class="输入框" placeholder="粘贴你的密钥"
+           autocomplete="off" spellcheck="false">
+    <label class="记住行">
+      <input id="记住我" type="checkbox" checked>
+      <span>记住密钥（用系统凭据加密存储）</span>
+    </label>
+    <button id="登录按钮" class="主按钮">登录</button>
+    <p id="登录提示" class="提示" role="alert" aria-live="polite"></p>
+    <p class="脚注">
+      密钥在网页端「个人中心 → API 密钥」生成。它等同账号密码，别外传。
+    </p>
+  </div>
+</div>
+<div id="主界面" class="主界面 隐藏">
+  <aside class="侧栏">
+    <div class="侧栏头">
+      <button id="新建项目" class="新建按钮">＋ 新建项目</button>
+    </div>
+    <div class="侧栏体">
+      <div class="小标题">云端项目</div>
+      <ul id="项目列表" class="项目列表"></ul>
+      <div class="小标题">本地项目</div>
+      <ul id="本地项目列表" class="项目列表"></ul>
+    </div>
+    <div class="侧栏脚">
+      <button id="余额" class="余额" type="button" title="点击充值">—</button>
+      <div class="脚按钮组">
+        <!-- 服务器登记已挪到顶部标题栏，这里不再放，id 不能重复 -->
+        <!-- 检查更新留在原位，但去掉 ⬆ 图标改成文字：
+             第一次用的人看不出那个箭头是干什么的 -->
+        <button id="检查更新钮" class="次按钮 小" title="检查更新">检查更新</button>
+        <button id="退出" class="次按钮 小">退出</button>
+      </div>
+    </div>
+  </aside>
+  <!-- 预览栏：夹在项目栏和聊天区中间，默认隐藏。
+       宽度可拖，拖动条是 #预览把手。里面是 <webview> 而不是 iframe，
+       因为 iframe 会被目标站的 X-Frame-Options 挡掉。 -->
+  <section id="预览栏" class="预览栏 隐藏" aria-label="网站预览">
+    <div class="预览条">
+      <button id="预览后退" class="预览钮 图标" type="button" title="后退" aria-label="后退" disabled>‹</button>
+      <button id="预览前进" class="预览钮 图标" type="button" title="前进" aria-label="前进" disabled>›</button>
+      <button id="预览刷新" class="预览钮 图标" type="button" title="刷新" aria-label="刷新">⟳</button>
+      <input id="预览地址" class="预览地址" type="text" spellcheck="false"
+             autocomplete="off" placeholder="输入网址后回车" aria-label="预览地址">
+      <!-- 设备切换。改 UA 的同时也会把视口按设备尺寸缩窄，
+           光改 UA 会出现「服务端给了手机版 HTML、但 CSS 断点按栏宽走」的错位 -->
+      <select id="预览设备" class="预览设备" aria-label="模拟设备">
+        <option value="电脑">🖥 电脑</option>
+        <option value="手机">📱 手机 390×844</option>
+        <option value="手机大">📱 手机大 430×932</option>
+        <option value="平板">💻 平板 820×1180</option>
+        <option value="自定义">⚙ 自定义…</option>
+      </select>
+      <button id="预览旋转" class="预览钮 图标 隐藏" type="button"
+              title="横竖屏切换" aria-label="横竖屏切换">⟲</button>
+      <!-- 诊断按钮：把 webview 元素和 guest 页面各自的实测尺寸显示出来。
+           设备模拟这类问题在服务器上没图形环境验证不了，
+           靠截图来回猜太慢，让用户点一下直接报数字。 -->
+      <button id="预览诊断" class="预览钮 图标 隐藏" type="button"
+              title="显示预览诊断信息" aria-label="显示预览诊断信息">?</button>
+      <button id="预览外开" class="预览钮 图标" type="button"
+              title="用系统浏览器打开" aria-label="用系统浏览器打开">↗</button>
+      <button id="预览关闭" class="预览钮 图标" type="button" title="关闭预览栏" aria-label="关闭预览栏">×</button>
+    </div>
+    <div id="预览体" class="预览体">
+      <!-- webview 由 JS 在打开时才创建：提前放在这里会立刻建一个空 guest 进程，
+           白占内存，而且 src 为空时某些版本会报错 -->
+      <!-- 默认隐藏，由 JS 决定显不显示：
+           项目填了站点地址就直接加载，不该闪一下这段文字 -->
+      <div id="预览空态" class="预览空态 隐藏">
+        <p>这个项目还没填站点地址。</p>
+        <p class="预览空态小">在项目设置里填「站点地址」，或直接在上面输入网址。</p>
+      </div>
+      <!-- 设备模拟时 webview 放进这个壳里，由壳定死宽高再整体缩放；
+           电脑模式下壳不加类，webview 直接铺满 -->
+      <div id="预览舞台" class="预览舞台"></div>
+      <div id="预览加载" class="预览加载 隐藏" role="status" aria-live="polite">加载中…</div>
+      <div id="预览尺寸" class="预览尺寸 隐藏" aria-hidden="true"></div>
+    </div>
+    <div id="预览把手" class="预览把手" role="separator" aria-orientation="vertical"
+         aria-label="拖动调整预览栏宽度" tabindex="0"></div>
+  </section>
+  <!-- 代码仓面板：客户端内的原生视图，不是网页嵌套。
+       和聊天区互斥显示——打开时聊天区整块藏起来，因为两者都要占满主区宽度，
+       并排放的话文件树和消息气泡都挤得没法看。
+       所有请求走 调('/api/repo.php')，即主进程转发 + Bearer 密钥。
+       这里不能用 fetch：本窗口 CSP 是 default-src 'none'，
+       渲染层直接发 https 请求会被拦死，控制台只报一句 Refused to connect。 -->
+  <section id="代码仓" class="代码仓 隐藏" aria-label="项目代码仓">
+    <header class="仓顶栏">
+      <span id="仓项目名" class="仓项目名">代码仓</span>
+      <span id="仓概况" class="仓概况"></span>
+      <div class="仓顶栏右">
+        <label class="开关">
+          <input id="仓仅改动" type="checkbox">
+          <span>只看未回传</span>
+        </label>
+        <!-- 压缩包与单文件上传：走 /api/repo.php act=upload，
+             zip 默认解压后逐个入仓，其它格式原样收下。
+             input 藏在这里而不是脚本里建，保证按钮和文件选择在同一处好找。 -->
+        <input id="仓选文件" type="file" hidden multiple
+               accept=".zip,.tar,.gz,.tgz,.bz2,.rar,.7z,.php,.js,.css,.html,.json,.md,.txt,.sql,.py,.sh,.yml,.yaml,.ini,.conf">
+        <button id="仓上传" class="次按钮 小" type="button"
+                title="上传压缩包或单个代码文件，一律完整入仓；zip 要展开的话上传后点它再解压">上传</button>
+        <button id="仓拉取" class="次按钮 小" type="button"
+                title="从服务器拉取最新代码到本地副本">拉取</button>
+        <button id="仓回传" class="主按钮 小" type="button"
+                title="把本地改动传回服务器（会先在服务器上备份）">回传</button>
+        <button id="仓关闭" class="图钮" type="button" title="关闭代码仓">✕</button>
+      </div>
+    </header>
+    <p id="仓提示" class="仓提示" role="status" aria-live="polite"></p>
+    <div class="仓体">
+      <div class="仓左">
+        <input id="仓搜索" class="仓搜索" type="text" spellcheck="false"
+               placeholder="按路径筛选…" aria-label="按路径筛选文件">
+        <ul id="仓文件表" class="仓文件表"></ul>
+      </div>
+      <div id="仓右" class="仓右">
+        <div class="仓空态">左边点一个文件查看内容。</div>
+      </div>
+    </div>
+  </section>
+  <main id="聊天区" class="聊天区">
+    <header class="顶栏">
+      <span id="标题" class="标题">选一个对话开始</span>
+      <div class="顶栏右">
+        <!-- 跳到上一条自己发的消息，连续点继续往更早翻 -->
+        <button id="上一条需求" class="图钮" title="回看上一条需求" disabled>↑ 上一条需求</button>
+        <!-- 提示音开关面板入口 -->
+        <button id="声音钮" class="图钮" title="任务完成提示音">🔔 提示音</button>
+        <select id="模型选择" class="模型选择" aria-label="选择模型"></select>
+      </div>
+    </header>
+    <div id="消息区" class="消息区" aria-live="polite">
+      <div class="空态">左边选个项目里的对话，或者新建一个项目。</div>
+    </div>
+    <footer class="输入区">
+      <textarea id="输入框" class="输入" rows="3"
+                placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+      <div class="输入右">
+        <button id="发送" class="主按钮 小">发送</button>
+        <button id="停止" class="次按钮 小 隐藏">暂停</button>
+      </div>
+      <p id="底部提示" class="底部提示">内容由 AI 生成，请自行核对关键信息。</p>
+    </footer>
+  </main>
+</div>
+<!-- ========== 服务器登记面板 ========== -->
+<div id="服务器遮罩" class="遮罩 隐藏">
+  <div class="面板">
+    <div class="面板头">
+      <span>服务器登记</span>
+      <button id="服务器关" class="图钮" title="关闭">✕</button>
+    </div>
+    <div class="面板体">
+      <ul id="主机列表" class="主机列表"></ul>
+      <p id="主机全局提示" class="提示" role="status" aria-live="polite"></p>
+      <button id="加主机" class="新建按钮">＋ 登记一台服务器</button>
+      <form id="主机表单" class="表单 隐藏">
+        <div class="表单行">
+          <label for="h_name">备注名</label>
+          <input id="h_name" class="输入框" maxlength="40" placeholder="例如：本站服务器">
+        </div>
+        <div class="表单行 两列">
+          <div>
+            <label for="h_host">主机地址</label>
+            <input id="h_host" class="输入框" placeholder="IP 或域名" spellcheck="false">
+          </div>
+          <div class="窄">
+            <label for="h_port">端口</label>
+            <input id="h_port" class="输入框" type="number" value="22" min="1" max="65535">
+          </div>
+        </div>
+        <div class="表单行">
+          <label for="h_user">登录用户</label>
+          <input id="h_user" class="输入框" placeholder="root" spellcheck="false">
+        </div>
+        <div class="表单行">
+          <label for="h_auth">认证方式</label>
+          <select id="h_auth" class="输入框">
+            <option value="key">私钥</option>
+            <option value="password">密码</option>
+          </select>
+        </div>
+        <div class="表单行">
+          <label for="h_secret"><span id="h_secret_名">私钥内容</span></label>
+          <textarea id="h_secret" class="输入框" rows="4" spellcheck="false"
+                    placeholder="修改时留空表示不改动凭据"></textarea>
+        </div>
+        <div class="表单行" id="h_kpass_行">
+          <label for="h_kpass">私钥口令（没有就留空）</label>
+          <input id="h_kpass" type="password" class="输入框" autocomplete="off">
+        </div>
+        <p id="主机提示" class="提示" role="alert" aria-live="polite"></p>
+        <div class="面板脚">
+          <button type="button" id="主机取消" class="次按钮 小">取消</button>
+          <button type="submit" id="主机保存" class="主按钮 小">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<!-- ========== 项目面板：新建 / 编辑 / 绑定服务器 ========== -->
+<div id="项目遮罩" class="遮罩 隐藏">
+  <div class="面板">
+    <div class="面板头">
+      <span id="项目面板标题">新建项目</span>
+      <button id="项目关" class="图钮" title="关闭">✕</button>
+    </div>
+    <form id="项目表单" class="面板体 表单">
+      <div class="表单行">
+        <label for="p_name">项目名称</label>
+        <input id="p_name" class="输入框" maxlength="60" placeholder="例如：岩羊开发修复">
+      </div>
+      <div class="表单行">
+        <label for="p_intro">项目说明（可选）</label>
+        <textarea id="p_intro" class="输入框" rows="2" maxlength="500"
+                  placeholder="这个项目是做什么的，AI 会参考"></textarea>
+      </div>
+      <div class="表单行">
+        <label for="p_stack">技术栈（可选）</label>
+        <input id="p_stack" class="输入框" maxlength="100" placeholder="例如：PHP + MySQL">
+      </div>
+      <div class="表单行">
+        <label for="p_type">部署位置</label>
+        <select id="p_type" class="输入框">
+          <option value="cloud">云端（绑服务器）</option>
+          <option value="local">本地文件夹</option>
+        </select>
+      </div>
+      <div id="云端区">
+        <div class="表单行">
+          <label for="p_host">绑定服务器</label>
+          <select id="p_host" class="输入框">
+            <option value="0">不绑定</option>
+          </select>
+          <p class="小字">绑定后 AI 才能在这台机器上执行命令、改代码。列表来自服务器登记。</p>
+        </div>
+        <div class="表单行">
+          <label for="p_dir">部署目录</label>
+          <input id="p_dir" class="输入框" placeholder="/www/wwwroot/你的站点" spellcheck="false">
+          <p class="小字">要填绝对路径，不能带 .. ，AI 的操作会限制在这个目录内。</p>
+        </div>
+        <div class="表单行">
+          <label for="p_url">站点地址（可选）</label>
+          <input id="p_url" class="输入框" placeholder="https://example.com" spellcheck="false">
+        </div>
+      </div>
+      <div id="本地区" class="表单行" style="display:none">
+        <label>本地文件夹</label>
+        <button type="button" id="选本地文件夹" class="次按钮 小">选择文件夹</button>
+        <span id="本地路径" class="小字"></span>
+      </div>
+      <p id="项目提示" class="提示" role="alert" aria-live="polite"></p>
+      <div class="面板脚">
+        <button type="button" id="项目取消" class="次按钮 小">取消</button>
+        <button type="submit" class="主按钮 小">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+<!-- ========== 提示音面板 ========== -->
+<div id="声音遮罩" class="遮罩 隐藏">
+  <div class="面板 窄面板">
+    <div class="面板头">
+      <span>任务完成提示音</span>
+      <button id="声音关" class="图钮" title="关闭">✕</button>
+    </div>
+    <div class="面板体">
+      <label class="记住行">
+        <input id="声开关" type="checkbox" checked>
+        <span>回答结束时响一声</span>
+      </label>
+      <div class="表单行">
+        <label for="声滑块">音量 <span id="声数值">45%</span></label>
+        <input id="声滑块" type="range" min="5" max="100" value="45" class="滑块"
+               aria-label="提示音音量">
+      </div>
+      <label class="记住行">
+        <input id="声闪烁" type="checkbox" checked>
+        <span>窗口在后台时闪任务栏图标</span>
+      </label>
+      <label class="记住行">
+        <input id="声通知" type="checkbox">
+        <span>弹桌面通知（点通知可回到窗口）</span>
+      </label>
+      <label class="记住行">
+        <input id="声压媒体" type="checkbox">
+        <span>响铃时压低其他程序的音量</span>
+      </label>
+      <p class="面板注">响完自动恢复原音量，不会打断播放进度。仅 Windows 有效。</p>
+      <div class="面板脚">
+        <button type="button" id="声试听" class="次按钮 小">试听</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- 预览设备自定义尺寸。Electron 渲染进程里 prompt() 是空实现，
+     点了没任何反应，所以必须自己做面板。 -->
+<div id="尺寸遮罩" class="遮罩 隐藏">
+  <div class="面板 窄面板">
+    <div class="面板头">
+      <span>自定义设备尺寸</span>
+      <button id="尺寸关" class="图钮" title="关闭">✕</button>
+    </div>
+    <div class="面板体">
+      <div class="表单行">
+        <label for="尺寸宽">宽（像素）</label>
+        <input id="尺寸宽" type="number" min="200" max="3000" step="1" value="375">
+      </div>
+      <div class="表单行">
+        <label for="尺寸高">高（像素）</label>
+        <input id="尺寸高" type="number" min="200" max="3000" step="1" value="667">
+      </div>
+      <div class="表单行">
+        <label for="尺寸比">像素比</label>
+        <select id="尺寸比">
+          <option value="1">1x（低清屏）</option>
+          <option value="2" selected>2x（多数手机）</option>
+          <option value="3">3x（旗舰手机）</option>
+        </select>
+      </div>
+      <label class="记住行">
+        <input id="尺寸移动" type="checkbox" checked>
+        <span>按移动端处理（发手机 UA，带触摸事件）</span>
+      </label>
+      <p class="面板注">范围 200 到 3000 像素。取消移动端勾选就只改视口尺寸，UA 保持桌面。</p>
+      <div class="面板脚">
+        <button type="button" id="尺寸取消" class="次按钮 小">取消</button>
+        <button type="button" id="尺寸确定" class="主按钮 小">应用</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- 充值面板：点余额打开，选面额下单，服务端回二维码 -->
+<div id="支付遮罩" class="遮罩 隐藏">
+  <div class="面板 窄面板">
+    <div class="面板头">
+      <span>账户充值</span>
+      <button id="支付关" class="图钮" title="关闭">✕</button>
+    </div>
+    <div class="面板体">
+      <div class="支付余额">当前余额 <b id="支付当前余额">—</b></div>
+      <div id="支付渠道行" class="表单行 隐藏">
+        <label for="支付渠道">支付方式</label>
+        <select id="支付渠道" class="输入"></select>
+      </div>
+      <div class="表单行">
+        <label>充值金额</label>
+        <div id="支付面额" class="面额组"></div>
+      </div>
+      <div id="支付自定义行" class="表单行 隐藏">
+        <label for="支付自定义">自定义金额</label>
+        <input id="支付自定义" class="输入" type="number" step="0.01" placeholder="输入金额">
+      </div>
+      <div id="支付码区" class="码区 隐藏">
+        <img id="支付码图" class="支付码" alt="支付二维码">
+        <div class="码说明">用支付宝扫码完成付款</div>
+        <div id="支付状态" class="码状态">等待付款…</div>
+      </div>
+      <div id="支付提示" class="支付提示 隐藏"></div>
+      <div class="面板脚">
+        <button type="button" id="支付下单" class="主按钮 小">去支付</button>
+        <button type="button" id="支付已付" class="次按钮 小 隐藏">我已付款</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="卡片适配.js"></script>
+<script src="ssh_card.js"></script>
+<script src="repo_card.js"></script>
+<script src="sftp_card.js"></script>
+<script src="ws_card.js"></script>
+<script src="ppt_card.js"></script>
+<script src="web_card.js"></script>
+<script src="卡片渲染.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

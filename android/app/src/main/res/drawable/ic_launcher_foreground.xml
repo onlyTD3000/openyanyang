@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图标前景：一个简化的对话气泡，纯矢量，不依赖位图资源 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,36h40a8,8 0 0 1 8,8v22a8,8 0 0 1 -8,8H56l-12,10v-10h-10a8,8 0 0 1 -8,-8V44a8,8 0 0 1 8,-8z" />
+    <path
+        android:fillColor="#1F6FEB"
+        android:pathData="M44,50h20v4h-20zM44,58h14v4h-14z" />
+</vector>

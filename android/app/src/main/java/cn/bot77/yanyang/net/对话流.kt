@@ -1,0 +1,262 @@
+package cn.bot77.yanyang.net
+import cn.bot77.yanyang.data.流事件
+import cn.bot77.yanyang.data.工具调用项
+import cn.bot77.yanyang.data.工具结果项
+import okhttp3.Call
+import okhttp3.FormBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
+/**
+ * 流式对话，对齐桌面端 ipcMain.handle('对话:开始')。
+ *
+ * 几个必须照抄的点：
+ * 1. 读超时设 0。长回答能跑好几分钟，设了超时会中途断流。
+ * 2. SSE 以空行分隔一条消息，网络包边界不一定落在空行上，
+ *    最后一段可能是半条，必须留在缓冲里等下一个包，否则长回答会丢字。
+ * 3. 状态码非 200 时后端回的是 JSON 不是 SSE（402 余额不足、401 密钥失效），
+ *    要按普通 JSON 读完再报错。
+ */
+class 对话流 {
+    private val 客户端 = OkHttpClient.Builder()
+        .callTimeout(0, TimeUnit.MILLISECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)   // 流式不设读超时
+        .build()
+    private var 当前请求: Call? = null
+    /** 是否正在输出 */
+    val 在跑: Boolean get() = 当前请求?.isCanceled() == false
+    /**
+     * 开始一轮对话。这是阻塞调用，请在 IO 线程里跑。
+     * @param 参数 表单参数，至少要有 conv_id、content、model
+     * @param 收事件 每解析出一个事件就回调一次，回调在调用线程上执行
+     */
+    fun 开始(
+        参数: Map<String, String>,
+        密钥: String,
+        收事件: (流事件) -> Unit
+    ) {
+        val 表单 = FormBody.Builder().apply {
+            参数.forEach { (键, 值) -> add(键, 值) }
+        }.build()
+        val 请求 = Request.Builder()
+            .url("$服务端/api/chat.php")
+            .header("Authorization", "Bearer $密钥")
+            .header("Accept", "text/event-stream")
+            .header("X-Client-Type", "android")
+            .post(表单)
+            .build()
+        val 调用 = 客户端.newCall(请求)
+        当前请求 = 调用
+        try {
+            调用.execute().use { 响应 ->
+                if (!响应.isSuccessful) {
+                    // 非 200 走 JSON 错误分支
+                    val 正文 = 响应.body?.string().orEmpty()
+                    val 提示 = try {
+                        JSONObject(正文).optString("error").ifBlank {
+                            "请求失败（HTTP ${响应.code}）"
+                        }
+                    } catch (e: Exception) {
+                        "请求失败（HTTP ${响应.code}）"
+                    }
+                    收事件(流事件.错误(提示))
+                    收事件(流事件.结束)
+                    return
+                }
+                val 流 = 响应.body?.source() ?: run {
+                    收事件(流事件.错误("响应体为空"))
+                    收事件(流事件.结束)
+                    return
+                }
+                var 缓冲 = StringBuilder()
+                while (!流.exhausted()) {
+                    if (调用.isCanceled()) break
+                    val 行 = 流.readUtf8Line() ?: break
+                    if (行.isEmpty()) {
+                        // 空行代表一条消息结束，处理缓冲里攒的内容
+                        解析一条(缓冲.toString(), 收事件)
+                        缓冲 = StringBuilder()
+                    } else {
+                        缓冲.append(行).append('\n')
+                    }
+                }
+                // 流结束时缓冲里可能还剩最后一条（后端没补空行）
+                if (缓冲.isNotEmpty()) 解析一条(缓冲.toString(), 收事件)
+                收事件(流事件.结束)
+            }
+        } catch (e: Exception) {
+            // 主动停止时 cancel 也会抛异常，这时不该再报错
+            if (调用.isCanceled()) {
+                收事件(流事件.结束)
+            } else {
+                收事件(流事件.错误("连接中断：${e.message ?: "未知"}"))
+                收事件(流事件.结束)
+            }
+        } finally {
+            当前请求 = null
+        }
+    }
+    /** 停止当前输出。对应桌面端的 '对话:停止' */
+    fun 停() {
+        当前请求?.cancel()
+        当前请求 = null
+    }
+    /**
+     * 断点重续：从中断位置恢复生成。
+     * @param 会话id 会话ID
+     * @param 运行号 run_id
+     * @param 已显示长度 前端已显示的字符数
+     * @param 密钥 API密钥
+     * @param 收事件 事件回调
+     */
+    fun 重续(
+        会话id: String,
+        运行号: String,
+        已显示长度: Int,
+        密钥: String,
+        收事件: (流事件) -> Unit
+    ) {
+        val url = "$服务端/api/chat_resume.php?conv_id=$会话id&run_id=$运行号&from=$已显示长度"
+        val 请求 = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $密钥")
+            .header("Accept", "text/event-stream")
+            .header("X-Client-Type", "android")
+            .get()
+            .build()
+        val 调用 = 客户端.newCall(请求)
+        当前请求 = 调用
+        try {
+            调用.execute().use { 响应 ->
+                if (!响应.isSuccessful) {
+                    val 正文 = 响应.body?.string().orEmpty()
+                    val 提示 = try {
+                        JSONObject(正文).optString("error").ifBlank {
+                            "重续失败（HTTP ${响应.code}）"
+                        }
+                    } catch (e: Exception) {
+                        "重续失败（HTTP ${响应.code}）"
+                    }
+                    收事件(流事件.错误(提示))
+                    收事件(流事件.结束)
+                    return
+                }
+                val 流 = 响应.body?.source() ?: run {
+                    收事件(流事件.错误("响应体为空"))
+                    收事件(流事件.结束)
+                    return
+                }
+                var 缓冲 = StringBuilder()
+                while (!流.exhausted()) {
+                    if (调用.isCanceled()) break
+                    val 行 = 流.readUtf8Line() ?: break
+                    if (行.isEmpty()) {
+                        解析一条(缓冲.toString(), 收事件)
+                        缓冲 = StringBuilder()
+                    } else {
+                        缓冲.append(行).append('\n')
+                    }
+                }
+                if (缓冲.isNotEmpty()) 解析一条(缓冲.toString(), 收事件)
+                收事件(流事件.结束)
+            }
+        } catch (e: Exception) {
+            if (调用.isCanceled()) {
+                收事件(流事件.结束)
+            } else {
+                收事件(流事件.错误("重续中断：${e.message ?: "未知"}"))
+                收事件(流事件.结束)
+            }
+        } finally {
+            当前请求 = null
+        }
+    }
+    /**
+     * 解析一条 SSE 消息。
+     * 格式是 event: 名称\ndata: JSON，data 可能跨多行需要拼接。
+     * 事件名映射照抄桌面端：meta→开始 delta→增量 fold→思考 stopped→已停 err→错误 done→完成
+     * tool_result→工具执行
+     */
+    private fun 解析一条(原文: String, 收事件: (流事件) -> Unit) {
+        if (原文.isBlank()) return
+        var 事件名 = "message"
+        val 数据行 = mutableListOf<String>()
+        原文.split('\n').forEach { 行 ->
+            when {
+                行.startsWith("event: ") -> 事件名 = 行.removePrefix("event: ").trim()
+                行.startsWith("data: ") -> 数据行.add(行.removePrefix("data: "))
+            }
+        }
+        if (数据行.isEmpty()) return
+        val 数据 = try {
+            JSONObject(数据行.joinToString("\n"))
+        } catch (e: Exception) {
+            return   // 解析不了就跳过这条，不影响后续
+        }
+        when (事件名) {
+            "meta" -> 收事件(流事件.开始(数据.optString("run_id")))
+            "delta" -> 收事件(流事件.增量(取文本(数据)))
+            "fold" -> 收事件(流事件.思考(取文本(数据)))
+            "tool_result" -> {
+                // 解析工具调用列表
+                val 调用列表 = mutableListOf<工具调用项>()
+                val callsArray = 数据.optJSONArray("calls")
+                if (callsArray != null) {
+                    for (i in 0 until callsArray.length()) {
+                        val call = callsArray.optJSONObject(i) ?: continue
+                        val func = call.optJSONObject("function") ?: continue
+                        调用列表.add(
+                            工具调用项(
+                                id = call.optString("id"),
+                                名称 = func.optString("name"),
+                                参数 = func.optString("arguments")
+                            )
+                        )
+                    }
+                }
+                
+                // 解析工具结果列表
+                val 结果列表 = mutableListOf<工具结果项>()
+                val resultsArray = 数据.optJSONArray("results")
+                if (resultsArray != null) {
+                    for (i in 0 until resultsArray.length()) {
+                        val result = resultsArray.optJSONObject(i) ?: continue
+                        结果列表.add(
+                            工具结果项(
+                                id = result.optString("tool_call_id"),
+                                内容 = result.optString("content")
+                            )
+                        )
+                    }
+                }
+                
+                收事件(流事件.工具执行(调用列表, 结果列表))
+            }
+            "stopped" -> 收事件(流事件.已停)
+            "err" -> 收事件(流事件.错误(数据.optString("msg").ifBlank { "输出出错" }))
+            "done" -> 收事件(
+                流事件.完成(
+                    余额 = 数据.optString("balance"),
+                    输入token = 数据.optInt("tokens_in"),
+                    输出token = 数据.optInt("tokens_out"),
+                    缓存读token = 数据.optInt("tokens_cache"),
+                    缓存写token = 数据.optInt("tokens_cache_create"),
+                    花费 = 数据.optString("cost")
+                )
+            )
+        }
+    }
+    /**
+     * 取增量文本。
+     * 后端主字段是 t，历史上还出现过 text 和 delta，
+     * 桌面端就是三个都兜着的，这里照抄，免得换个模型就一个字都出不来。
+     */
+    private fun 取文本(数据: JSONObject): String = when {
+        数据.has("t") -> 数据.optString("t")
+        数据.has("text") -> 数据.optString("text")
+        数据.has("delta") -> 数据.optString("delta")
+        else -> ""
+    }
+}

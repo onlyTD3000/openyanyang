@@ -1,0 +1,413 @@
+package cn.bot77.yanyang.data
+import cn.bot77.yanyang.net.接口
+import org.json.JSONObject
+class 仓库(private val 密钥源: () -> String) {
+    fun 取我的信息(): Result<我的信息> {
+        val r = 接口.调("/api/me.php", 方法 = "GET", 密钥 = 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(
+            我的信息(
+                id = r.optInt("id"),
+                用户名 = r.optString("username"),
+                邮箱 = r.optString("email"),
+                角色 = r.optString("role"),
+                余额 = r.optString("balance"),
+                token配额 = r.optInt("token_quota"),
+                已用token = r.optInt("used_tokens"),
+                总花费 = r.optString("total_cost"),
+                有效 = true
+            )
+        )
+    }
+    fun 取模型表(): List<模型项> {
+        val r = 接口.调("/api/models.php", 方法 = "GET", 密钥 = 密钥源())
+        val 数组 = r.optJSONArray("list") ?: r.optJSONArray("models") ?: return emptyList()
+        return (0 until 数组.length()).mapNotNull { i ->
+            val o = 数组.optJSONObject(i) ?: return@mapNotNull null
+            val 标识 = o.optString("id")
+            if (标识.isBlank()) null
+            else 模型项(
+                标识 = 标识,
+                名称 = o.optString("display_name")
+                    .ifBlank { o.optString("model_name") }
+                    .ifBlank { "模型 " + 标识 },
+                视觉 = o.optInt("vision", 0) == 1
+            )
+        }
+    }
+    fun 取项目表(): List<项目> {
+        val r = 接口.调("/api/project.php", mapOf("act" to "list"), "GET", 密钥源())
+        val 数组 = r.optJSONArray("list") ?: return emptyList()
+        return (0 until 数组.length()).mapNotNull { i ->
+            val o = 数组.optJSONObject(i) ?: return@mapNotNull null
+            项目(
+                id = o.optString("id"),
+                名称 = o.optString("name").ifBlank { "未命名项目" },
+                简介 = o.optString("intro"),
+                技术栈 = o.optString("stack"),
+                主机id = o.optString("host_id"),
+                部署目录 = o.optString("deploy_dir"),
+                站点地址 = o.optString("site_url"),
+                颜色 = o.optString("color")
+            )
+        }
+    }
+    fun 取会话表(): List<会话> {
+        val r = 接口.调("/api/conv.php", mapOf("act" to "list"), "GET", 密钥源())
+        val 数组 = r.optJSONArray("list") ?: return emptyList()
+        return (0 until 数组.length()).mapNotNull { i ->
+            val o = 数组.optJSONObject(i) ?: return@mapNotNull null
+            会话(
+                id = o.optString("id"),
+                标题 = o.optString("title").ifBlank { "新对话" },
+                项目id = o.optString("project_id")
+            )
+        }
+    }
+    fun 取消息表(会话id: String): List<消息> {
+        val r = 接口.调(
+            "/api/conv.php",
+            mapOf("act" to "messages", "conv_id" to 会话id),
+            "GET", 密钥源()
+        )
+        val 数组 = r.optJSONArray("list") ?: return emptyList()
+        return (0 until 数组.length()).mapNotNull { i ->
+            val o = 数组.optJSONObject(i) ?: return@mapNotNull null
+            消息(
+                角色 = o.optString("role").ifBlank { "assistant" },
+                正文 = o.optString("content"),
+                思考 = o.optString("fold")
+            )
+        }
+    }
+    fun 新建会话(项目id: String): String? {
+        val 参数 = mutableMapOf("act" to "new")
+        if (项目id.isNotBlank()) 参数["project_id"] = 项目id
+        val r = 接口.调("/api/conv.php", 参数, "POST", 密钥源())
+        return r.optString("conv_id").ifBlank { r.optString("id").ifBlank { null } }
+    }
+    fun 删会话(会话id: String): Boolean {
+        val r = 接口.调("/api/conv.php", mapOf("act" to "del", "conv_id" to 会话id), "POST", 密钥源())
+        return r.optString("error").isBlank()
+    }
+    fun 改会话名(会话id: String, 新名: String): Boolean {
+        val r = 接口.调(
+            "/api/conv.php",
+            mapOf("act" to "rename", "conv_id" to 会话id, "title" to 新名),
+            "POST", 密钥源()
+        )
+        return r.optString("error").isBlank()
+    }
+    fun 停输出(会话id: String, 运行号: String) {
+        接口.调(
+            "/api/chat_stop.php",
+            mapOf("conv_id" to 会话id, "run_id" to 运行号),
+            "POST", 密钥源()
+        )
+    }
+    fun 取仓文件表(项目id: String, 仅改动: Boolean = false): Result<List<仓文件>> {
+        val 参数 = mutableMapOf("act" to "tree", "project_id" to 项目id)
+        if (仅改动) 参数["dirty"] = "1"
+        val r = 接口.调("/api/repo.php", 参数, "GET", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        val 数组 = r.optJSONArray("list") ?: return Result.success(emptyList())
+        return Result.success((0 until 数组.length()).mapNotNull { i ->
+            val o = 数组.optJSONObject(i) ?: return@mapNotNull null
+            仓文件(
+                路径 = o.optString("path"),
+                大小文本 = o.optString("size_text"),
+                是文本 = o.optInt("is_text") == 1,
+                状态 = o.optString("state")
+            )
+        })
+    }
+    fun 读仓文件(项目id: String, 路径: String): Result<String> {
+        val r = 接口.调(
+            "/api/repo.php",
+            mapOf("act" to "read", "project_id" to 项目id, "path" to 路径),
+            "GET", 密钥源()
+        )
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(r.optString("content"))
+    }
+    fun 取仓概况(项目id: String): Result<仓概况> {
+        val r = 接口.调("/api/repo.php", mapOf("act" to "info", "project_id" to 项目id), "GET", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        val o = r.optJSONObject("repo") ?: return Result.failure(Exception("返回格式异常"))
+        return Result.success(
+            仓概况(
+                项目名 = o.optString("project"),
+                远程目录 = o.optString("remote_dir"),
+                主机 = o.optString("host"),
+                改动数 = o.optInt("dirty")
+            )
+        )
+    }
+    fun 保存项目(项目: 项目): Result<项目> {
+        val 参数 = mutableMapOf(
+            "act" to "save",
+            "name" to 项目.名称,
+            "intro" to 项目.简介,
+            "stack" to 项目.技术栈,
+            "host_id" to 项目.主机id,
+            "deploy_dir" to 项目.部署目录,
+            "site_url" to 项目.站点地址,
+            "color" to 项目.颜色
+        )
+        if (项目.id.isNotBlank()) 参数["id"] = 项目.id
+        val r = 接口.调("/api/project.php", 参数, "POST", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(项目.copy(id = r.optString("id").ifBlank { 项目.id }))
+    }
+    fun 传图(字节: ByteArray, 文件名: String, 类型: String): Result<String> {
+        val r = 接口.传文件("/api/upload.php", 字节, 文件名, 类型, 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        val id = r.optString("id")
+        return if (id.isBlank()) Result.failure(Exception("上传成功但没拿到图片 id"))
+        else Result.success(id)
+    }
+    fun 取服务器列表(): List<SSHHost> {
+        val r = 接口.调("/api/ssh_hosts.php", mapOf("act" to "list"), "GET", 密钥源())
+        val 数组 = r.optJSONArray("hosts") ?: return emptyList()
+        return (0 until 数组.length()).mapNotNull { i ->
+            val o = 数组.optJSONObject(i) ?: return@mapNotNull null
+            SSHHost(
+                id = o.optString("id"),
+                名称 = o.optString("name"),
+                地址 = o.optString("host"),
+                端口 = o.optInt("port", 22),
+                用户名 = o.optString("username"),
+                认证方式 = o.optString("auth_type"),
+                状态 = o.optString("status"),
+                指纹 = o.optString("fingerprint"),
+                最近连通 = o.optString("last_ok_at"),
+                错误信息 = o.optString("last_error")
+            )
+        }
+    }
+    fun 保存服务器(表单: SSHHostForm): Result<Unit> {
+        val 参数 = mutableMapOf(
+            "act" to "save",
+            "name" to 表单.名称,
+            "host" to 表单.地址,
+            "port" to 表单.端口,
+            "username" to 表单.用户名,
+            "auth_type" to 表单.认证方式
+        )
+        // secret 字段兼两用：密码认证时装密码，密钥认证时装私钥内容；key_pass 是私钥口令
+        if (表单.认证方式 == "key") {
+            参数["secret"] = 表单.凭据
+            参数["key_pass"] = 表单.口令
+        } else {
+            参数["secret"] = 表单.口令
+        }
+        if (表单.id.isNotBlank()) 参数["id"] = 表单.id
+        val r = 接口.调("/api/ssh_hosts.php", 参数, "POST", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(Unit)
+    }
+    fun 删服务器(id: String): Boolean {
+        val r = 接口.调("/api/ssh_hosts.php", mapOf("act" to "del", "id" to id), "POST", 密钥源())
+        return r.optString("error").isBlank()
+    }
+    fun 测试服务器(id: String): Result<String> {
+        val r = 接口.调("/api/ssh_hosts.php", mapOf("act" to "test", "id" to id), "POST", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(r.optString("msg"))
+    }
+    // ================= 命令执行 =================
+    /** 起一个后台任务，返回任务号。长命令不会因 HTTP 超时被切断。 */
+    fun 起命令(主机id: String, 会话id: String, 命令: String): Result<String> {
+        val r = 接口.调(
+            "/api/ssh_run.php",
+            mapOf("act" to "start", "host_id" to 主机id, "conv_id" to 会话id, "command" to 命令),
+            "POST", 密钥源()
+        )
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        val job = r.optString("job")
+        if (job.isBlank()) return Result.failure(Exception("后端没返回任务号"))
+        return Result.success(job)
+    }
+    /** 读任务进度。from 是已收到的字节数，只取新增部分。 */
+    fun 读命令进度(主机id: String, 会话id: String, 任务号: String, 起点: Int, 命令: String): Result<命令进度> {
+        val r = 接口.调(
+            "/api/ssh_run.php",
+            mapOf(
+                "act" to "tail", "host_id" to 主机id, "conv_id" to 会话id,
+                "job" to 任务号, "from" to 起点.toString(), "command" to 命令
+            ),
+            "POST", 密钥源()
+        )
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(
+            命令进度(
+                完成 = r.optInt("done", 0) == 1,
+                退出码 = r.optInt("exit", -1),
+                输出 = r.optString("out"),
+                下一个起点 = r.optInt("next", 起点)
+            )
+        )
+    }
+    // ================= 用量 =================
+    fun 取用量概览(): Result<用量概览> {
+        val r = 接口.调("/api/usage.php", mapOf("act" to "summary"), "GET", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(
+            用量概览(
+                余额 = r.optString("balance"),
+                总花费 = r.optString("total_cost"),
+                token配额 = r.optInt("token_quota"),
+                已用token = r.optInt("used_tokens"),
+                配额剩余 = if (r.isNull("quota_left")) null else r.optInt("quota_left"),
+                今日花费 = r.optString("today_cost"),
+                今日次数 = r.optInt("today_calls"),
+                累计tokens = r.optInt("total_tokens"),
+                累计次数 = r.optInt("total_calls")
+            )
+        )
+    }
+    fun 取调用明细(页码: Int = 1): Result<List<调用记录>> {
+        val r = 接口.调("/api/usage.php", mapOf("act" to "logs", "p" to 页码.toString()), "GET", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        val 数组 = r.optJSONArray("list") ?: return Result.success(emptyList())
+        return Result.success((0 until 数组.length()).mapNotNull { i ->
+            val o = 数组.optJSONObject(i) ?: return@mapNotNull null
+            调用记录(
+                id = o.optInt("id"),
+                模型名 = o.optString("model_name"),
+                输入token = o.optInt("tokens_in"),
+                输出token = o.optInt("tokens_out"),
+                费用 = o.optString("cost"),
+                状态 = o.optString("status"),
+                估算 = o.optInt("is_estimated") == 1,
+                时间 = o.optString("created_at")
+            )
+        })
+    }
+    // ================= 个人资料 =================
+    fun 取资料概览(): Result<资料概览> {
+        val r = 接口.调("/api/profile.php", mapOf("act" to "info"), "GET", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        val 密钥数组 = r.optJSONArray("api_keys")
+        val 密钥表 = if (密钥数组 == null) emptyList() else (0 until 密钥数组.length()).mapNotNull { i ->
+            val o = 密钥数组.optJSONObject(i) ?: return@mapNotNull null
+            API密钥(
+                id = o.optInt("id"),
+                名称 = o.optString("name"),
+                创建时间 = o.optString("created_at"),
+                最近使用 = o.optString("last_used_at")
+            )
+        }
+        val 流水数组 = r.optJSONArray("balance_logs")
+        val 流水表 = if (流水数组 == null) emptyList() else (0 until 流水数组.length()).mapNotNull { i ->
+            val o = 流水数组.optJSONObject(i) ?: return@mapNotNull null
+            余额流水(
+                id = o.optInt("id"),
+                金额 = o.optString("amount"),
+                变动后余额 = o.optString("balance_after"),
+                类型 = o.optString("type"),
+                类型名 = o.optString("type_name"),
+                备注 = o.optString("note"),
+                时间 = o.optString("created_at")
+            )
+        }
+        return Result.success(
+            资料概览(
+                用户名 = r.optString("username"),
+                邮箱 = r.optString("email"),
+                余额 = r.optString("balance"),
+                总花费 = r.optString("total_cost"),
+                会话数 = r.optInt("conv_count"),
+                调用数 = r.optInt("call_count"),
+                密钥表 = 密钥表,
+                流水表 = 流水表
+            )
+        )
+    }
+    fun 改密码(旧密码: String, 新密码: String, 新密码2: String): Result<Unit> {
+        val r = 接口.调(
+            "/api/profile.php",
+            mapOf("act" to "change_password", "old_password" to 旧密码,
+                  "new_password" to 新密码, "new_password2" to 新密码2),
+            "POST", 密钥源()
+        )
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(Unit)
+    }
+    fun 改邮箱(邮箱: String): Result<String> {
+        val r = 接口.调("/api/profile.php", mapOf("act" to "change_email", "email" to 邮箱), "POST", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(r.optString("msg"))
+    }
+    /** 新建密钥，成功时返回明文 token，仅此一次可见 */
+    fun 新建密钥(名称: String): Result<String> {
+        val r = 接口.调("/api/profile.php", mapOf("act" to "key_create", "name" to 名称), "POST", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(r.optString("token"))
+    }
+    fun 删密钥(密钥id: Int): Result<Unit> {
+        val r = 接口.调("/api/profile.php", mapOf("act" to "key_delete", "key_id" to 密钥id.toString()), "POST", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(Unit)
+    }
+    /** 重置密钥，成功时返回新明文 token */
+    fun 重置密钥(密钥id: Int): Result<String> {
+        val r = 接口.调("/api/profile.php", mapOf("act" to "key_reset", "key_id" to 密钥id.toString()), "POST", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(r.optString("token"))
+    }
+    // ================= 充值 =================
+    /* 面额表之外把自定义金额的开关和区间一起带回来。
+       服务端 pay_custom_on 关掉时输入框就不该出现，这个判断只能由服务端给，
+       客户端写死会出现「后台关了，App 还显示」。 */
+    fun 取充值选项(): Result<充值选项> {
+        val r = 接口.调("/api/pay.php", mapOf("act" to "options"), "GET", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        val 数组 = r.optJSONArray("amounts")
+        val 表 = if (数组 == null) emptyList() else (0 until 数组.length()).mapNotNull { i ->
+            val o = 数组.optJSONObject(i) ?: return@mapNotNull null
+            充值面额(
+                到账 = o.optString("credit"),
+                实付 = o.optString("pay"),
+                折扣 = o.optString("rate")
+            )
+        }
+        // 兜底值跟服务端 setting_get 的默认值保持一致，字段缺失时行为不跑偏
+        return Result.success(
+            充值选项(
+                面额表 = 表,
+                自定义开 = r.optInt("custom_on", 0) == 1,
+                自定义下限 = r.optDouble("custom_min", 1.0),
+                自定义上限 = r.optDouble("custom_max", 10000.0)
+            )
+        )
+    }
+    /** 下单充值，scene 传 qr 走扫码，否则服务端按设备自动选形态 */
+    fun 充值下单(到账金额: String, 扫码: Boolean = false): Result<充值订单> {
+        val 参数 = mutableMapOf("act" to "create", "credit" to 到账金额)
+        if (扫码) 参数["scene"] = "qr"
+        val r = 接口.调("/api/pay.php", 参数, "POST", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        return Result.success(
+            充值订单(
+                订单号 = r.optString("order_no"),
+                类型 = r.optString("type"),
+                地址 = r.optString("url"),
+                到账 = r.optString("credit"),
+                实付 = r.optString("pay")
+            )
+        )
+    }
+    /** 查询订单状态，paid 时附带最新余额 */
+    fun 查充值单(订单号: String): Result<Pair<String, String?>> {
+        val r = 接口.调("/api/pay.php", mapOf("act" to "query", "order_no" to 订单号), "POST", 密钥源())
+        r.optString("error").takeIf { it.isNotBlank() }?.let { return Result.failure(Exception(it)) }
+        val 状态 = r.optString("status")
+        val 余额 = if (状态 == "paid") r.optString("balance") else null
+        return Result.success(状态 to 余额)
+    }
+    /** 取支付二维码图片字节，图不是 JSON，走单独的取字节接口 */
+    fun 取充值二维码(订单号: String): ByteArray? {
+        return 接口.取字节("/api/qrcode.php", mapOf("order_no" to 订单号), 密钥源())
+    }
+}

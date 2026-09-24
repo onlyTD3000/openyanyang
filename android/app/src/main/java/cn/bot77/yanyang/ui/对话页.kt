@@ -1,0 +1,1495 @@
+package cn.bot77.yanyang.ui
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import cn.bot77.yanyang.media.提示音
+import cn.bot77.yanyang.media.声设置
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import android.net.Uri
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import cn.bot77.yanyang.data.会话
+import cn.bot77.yanyang.data.项目
+import cn.bot77.yanyang.data.模型项
+import cn.bot77.yanyang.net.版本检查
+import cn.bot77.yanyang.net.版本信息
+import cn.bot77.yanyang.BuildConfig
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Info
+import androidx.core.content.ContextCompat
+import android.content.Intent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import cn.bot77.yanyang.net.更新下载
+import cn.bot77.yanyang.net.下载进度
+/**
+ * 对话主页。
+ *
+ * 侧栏走 ModalNavigationDrawer，手机屏幕窄，常驻侧栏挤得没法看。
+ * 消息列表用 LazyColumn，流式输出时自动跟到底部。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun 对话页(状态: 主状态) {
+    val 抽屉 = rememberDrawerState(DrawerValue.Closed)
+    val 协程 = rememberCoroutineScope()
+    // 抽屉开着时返回键先收抽屉，这是用户最直觉的一步。
+    // 抽屉已关就不拦，交给系统退出应用——对话页是根页面，没有上一页。
+    BackHandler(enabled = 抽屉.isOpen) {
+        协程.launch { 抽屉.close() }
+    }
+    ModalNavigationDrawer(
+        drawerState = 抽屉,
+        drawerContent = {
+            ModalDrawerSheet(Modifier.width(300.dp)) {
+                侧栏(状态) { 协程.launch { 抽屉.close() } }
+            }
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                状态.当前会话.value?.标题 ?: "岩羊Ai",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            if (状态.我的.value.余额.isNotBlank()) {
+                                Text(
+                                    "余额 ${状态.我的.value.余额}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.clickable { 状态.开充值页() }
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { 协程.launch { 抽屉.open() } }) {
+                            Icon(Icons.Filled.Menu, "打开侧栏")
+                        }
+                    },
+                    actions = {
+                        模型选择器(状态)
+                        提示音按钮(状态)
+                    }
+                )
+            },
+            bottomBar = { 输入栏(状态) }
+        ) { 内边距 ->
+            Box(Modifier.padding(内边距).fillMaxSize()) {
+                消息列表(状态)
+                if (状态.加载中.value && 状态.消息表.isEmpty()) {
+                    CircularProgressIndicator(Modifier.align(Alignment.Center))
+                }
+            }
+        }
+    }
+    // 提示统一用 Snackbar 弹，弹完清掉，避免切屏后重复弹
+    状态.提示.value.takeIf { it.isNotBlank() }?.let { 文 ->
+        val 宿主 = remember { SnackbarHostState() }
+        SnackbarHost(宿主, Modifier.fillMaxWidth())
+        LaunchedEffect(文) {
+            宿主.showSnackbar(文)
+            状态.清提示()
+        }
+    }
+}
+@Composable
+private fun 消息列表(状态: 主状态) {
+    val 列表态 = rememberLazyListState()
+    val 协程域 = rememberCoroutineScope()
+    // 是否跟随底部。true 时新内容会自动滚到底，false 时停在用户看的位置。
+    // 初始为 true：刚进对话应该看到最新消息。
+    var 跟随底部 by remember { mutableStateOf(true) }
+    // 判断当前视口是不是已经贴着底部。
+    // 允许 200 像素误差：流式输出时内容一直在长，严格判等永远不成立。
+    val 在底部附近 by remember {
+        derivedStateOf {
+            val 布局 = 列表态.layoutInfo
+            val 末项 = 布局.visibleItemsInfo.lastOrNull()
+            if (末项 == null) {
+                true                      // 列表还空着，当作在底部
+            } else {
+                末项.index >= 布局.totalItemsCount - 1 &&
+                    末项.offset + 末项.size <= 布局.viewportEndOffset + 200
+            }
+        }
+    }
+    // 滚动结束后按落点重新决定跟不跟。
+    // 注意必须在结束时判定：手指刚按下还没移动时视口仍在底部，
+    // 那一刻取值会误判成「要跟随」，用户上翻立刻又被拽回去。
+    LaunchedEffect(列表态.isScrollInProgress) {
+        if (!列表态.isScrollInProgress) {
+            跟随底部 = 在底部附近
+        }
+    }
+    // 自己刚发出的消息一定要看见，无条件恢复跟随。
+    LaunchedEffect(状态.消息表.size) {
+        if (状态.消息表.lastOrNull()?.是用户 == true) {
+            跟随底部 = true
+        }
+    }
+    // 切换对话或首次进入时自动跳到底部
+    LaunchedEffect(状态.当前会话.value?.id) {
+        if (状态.消息表.isNotEmpty()) {
+            列表态.scrollToItem(状态.消息表.lastIndex, Int.MAX_VALUE / 2)
+            跟随底部 = true
+        }
+    }
+    // 内容增长时的跟随。用 scrollToItem 不带动画：
+    // 流式输出触发很密，动画会互相打断，那正是「弹上去」的来源。
+    //
+    // 拆成两个效果：
+    // 1. 新消息加入 → 无条件滚到消息末尾
+    // 2. 文字流式增长 → 仅纯文字消息跟随，含工具卡片的消息不跟随
+    //    （卡片高度会随状态变化，追到末尾会导致界面反复跳动、正文看不到）
+    LaunchedEffect(状态.消息表.size) {
+        if (状态.消息表.isNotEmpty() && 跟随底部) {
+            列表态.scrollToItem(状态.消息表.lastIndex, Int.MAX_VALUE / 2)
+        }
+    }
+    LaunchedEffect(状态.消息表.lastOrNull()?.正文?.length) {
+        if (状态.消息表.isNotEmpty() && 跟随底部) {
+            val 末条 = 状态.消息表.last()
+            if (!末条.有工具) {
+                列表态.scrollToItem(状态.消息表.lastIndex, Int.MAX_VALUE / 2)
+            }
+        }
+    }
+    if (状态.消息表.isEmpty() && !状态.加载中.value) {
+        空态(状态)
+        return
+    }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = 列表态,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = 8.dp)
+        ) {
+            items(
+                count = 状态.消息表.size,
+                key = { i -> 状态.消息表[i].序号 }
+            ) { i ->
+                消息条(状态.消息表[i])
+            }
+        }
+        // 右下角悬浮按钮：不在底部时显示，点击快速回到底部
+        if (!在底部附近 && 状态.消息表.isNotEmpty()) {
+            FloatingActionButton(
+                onClick = {
+                    协程域.launch {
+                        列表态.scrollToItem(状态.消息表.lastIndex, Int.MAX_VALUE / 2)
+                        跟随底部 = true
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "回到底部")
+            }
+        }
+    }
+}
+/**
+ * 没有消息时的空态。
+ *
+ * 分两种情况：还没选对话时提示先去侧栏选一个（这时候发不出消息，
+ * 输入栏那边也会禁掉发送），已经选了就只是一条还没开口的新对话。
+ * 后台配了站点公告就一并显示，内容跟网页端聊天页空态是同一份。
+ */
+@Composable
+private fun 空态(状态: 主状态) {
+    val 有会话 = 状态.当前会话.value != null
+    val 公告 = 状态.我的.value.公告.trim()
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            if (有会话) "开始新的对话" else "先选一条对话",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            if (有会话) "在下面输入你的问题，按发送。"
+            else "点左上角菜单，在项目下选一条对话或新建一条，之后才能发消息。",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        if (公告.isNotBlank()) {
+            Spacer(Modifier.height(24.dp))
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "站点公告",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        公告,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+        }
+    }
+}
+@Composable
+private fun 输入栏(状态: 主状态) {
+    var 草稿 by remember { mutableStateOf("") }
+    val 上下文 = LocalContext.current
+    val 列表态 = rememberLazyListState()
+    val 协程域 = rememberCoroutineScope()
+    
+    // 超过后台设定的体积上限时，先问用户要不要压。
+    // 存 uri 和原始 KB 数：前者压缩要用，后者是弹窗文案里那个数字。
+    var 待确认图 by remember { mutableStateOf<Pair<android.net.Uri, Int>?>(null) }
+    val 上限KB = 状态.我的.value.图片上限KB
+    // 系统相册选择器。PickVisualMedia 由系统进程选图后授临时读权限，
+    // 不用申请 READ_MEDIA_IMAGES，省一个运行时权限弹窗。
+    val 选图 = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            val 超出KB = 需要确认压缩(上下文, uri, 上限KB)
+            if (超出KB > 0) 待确认图 = uri to 超出KB
+            else 压缩并上传(上下文, uri, 状态, 上限KB)
+        }
+    }
+    待确认图?.let { (待压uri, 原始KB) ->
+        AlertDialog(
+            onDismissRequest = { 待确认图 = null },
+            title = { Text("图片超过上限") },
+            text = {
+                Text(
+                    "这张图 ${原始KB}KB，超过上限 ${上限KB}KB。\n" +
+                        "压缩会降低画质，图上的文字可能变模糊。要继续吗？"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    待确认图 = null
+                    压缩并上传(上下文, 待压uri, 状态, 上限KB)
+                }) { Text("压缩并上传") }
+            },
+            dismissButton = {
+                TextButton(onClick = { 待确认图 = null }) { Text("取消") }
+            }
+        )
+    }
+    // 没选对话时不能发：服务端要 conv_id，没有它这条消息没地方落。
+    // 拦在这里比发出去再报错好，用户不用等一个来回才知道。
+    val 有会话 = 状态.当前会话.value != null
+    // 有图没字也能发，所以两个条件是或
+    val 可发送 = 有会话 &&
+        (草稿.isNotBlank() || 状态.待发图片.isNotEmpty()) &&
+        !状态.在传图.value
+    Surface(tonalElevation = 3.dp) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+        ) {
+            // 工具栏：上一条需求、上下文条数、工具开关（与网页端对齐）
+            工具栏(
+                状态 = 状态,
+                列表态 = rememberLazyListState(),
+                协程域 = rememberCoroutineScope()
+            )
+            
+            // 待发图片预览条。没图时整条不占位
+            if (状态.待发图片.isNotEmpty()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(start = 12.dp, end = 12.dp, top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    状态.待发图片.forEach { 图 ->
+                        Box(Modifier.padding(end = 8.dp)) {
+                            缩略图(图.本地uri, 64.dp)
+                            // 右上角叉号，点了从待发列表移除
+                            Surface(
+                                color = Color.Black.copy(alpha = 0.55f),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(2.dp)
+                                    .size(20.dp)
+                                    .clickable { 状态.删图(图.id) }
+                            ) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    "移除图片",
+                                    tint = Color.White,
+                                    modifier = Modifier.padding(3.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                // 图片按钮。非视觉模型置灰，免得传上去必然被后端拒掉
+                IconButton(
+                    onClick = {
+                        if (!状态.当前模型支持图片) {
+                            状态.提示.value = "当前模型不支持图片，请换到视觉模型"
+                            return@IconButton
+                        }
+                        选图.launch(
+                            PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        )
+                    },
+                    enabled = !状态.在传图.value && !状态.在生成.value
+                ) {
+                    if (状态.在传图.value) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Filled.Image, "添加图片")
+                    }
+                }
+                OutlinedTextField(
+                    value = 草稿,
+                    onValueChange = { 草稿 = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = {
+                        // 没选对话时占位文字就说明原因，光禁按钮用户会以为是坏了
+                        Text(
+                            if (!有会话) "先在菜单里选一条对话"
+                            else if (状态.当前模型支持图片) "说点什么，也能发图"
+                            else "说点什么"
+                        )
+                    },
+                    maxLines = 5,
+                    shape = RoundedCornerShape(20.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default)
+                )
+                Spacer(Modifier.width(8.dp))
+                // 生成中显示停止键，其余时候是发送键
+                if (状态.在生成.value) {
+                    FilledIconButton(
+                        onClick = { 状态.停生成() },
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Icon(Icons.Filled.Stop, "停止生成")
+                    }
+                } else {
+                    FilledIconButton(
+                        onClick = {
+                            状态.发送(草稿)
+                            草稿 = ""
+                        },
+                        enabled = 可发送
+                    ) {
+                        Icon(Icons.Filled.Send, "发送")
+                    }
+                }
+            }
+        }
+    }
+}
+/**
+ * 把相册选中的图读成字节交给状态层上传。
+ *
+ * 顺手做两件事：
+ *  - 超过 2000px 的长边等比缩小再传，手机原图动辄 4000px 好几兆，
+ *    传上去既慢又白烧 token，视觉模型也用不到那个分辨率
+ *  - 统一转 JPEG，避开 HEIC 这类后端 getimagesize 认不了的格式
+ */
+/**
+ * 压缩结果。
+ * 达标 = 压到了上限以内；否则 最小体积 是质量降到最低时还剩多少字节，
+ * 用来告诉用户「压到最低也还有多大」，而不是含糊一句失败。
+ */
+private data class 压缩结果(
+    val 字节: ByteArray,
+    val 达标: Boolean,
+    val 最小体积: Int
+)
+/**
+ * 只调 JPEG 质量把图压到 上限KB 以内，不改像素尺寸。
+ * 上限KB 为 0 表示后台没设上限，直接按默认质量出图。
+ *
+ * 注意：截图这类大片纯色配锐利文字的图，降质量掉体积慢、毁文字快，
+ * 质量到最低仍可能超限。这种情况返回 达标 = false，由调用方提示用户，
+ * 不硬着头皮传一张既糊又超限的图上去。
+ */
+private fun 按质量压缩(图: android.graphics.Bitmap, 上限KB: Int): 压缩结果 {
+    val 上限字节 = 上限KB * 1024
+    var 质量 = 88
+    var 最后 = ByteArray(0)
+    while (true) {
+        val 出 = java.io.ByteArrayOutputStream()
+        图.compress(android.graphics.Bitmap.CompressFormat.JPEG, 质量, 出)
+        最后 = 出.toByteArray()
+        if (上限KB <= 0 || 最后.size <= 上限字节) {
+            return 压缩结果(最后, true, 最后.size)
+        }
+        if (质量 <= 10) {
+            return 压缩结果(最后, false, 最后.size)
+        }
+        质量 -= 10
+        if (质量 < 10) 质量 = 10
+    }
+}
+/** 从 uri 解出位图，读不出返回 null */
+private fun 解位图(上下文: android.content.Context, uri: android.net.Uri): android.graphics.Bitmap? =
+    try {
+        上下文.contentResolver.openInputStream(uri)?.use {
+            android.graphics.BitmapFactory.decodeStream(it)
+        }
+    } catch (e: Exception) {
+        null
+    }
+/**
+ * 压缩并上传。确认弹窗之后调这里，此时用户已经知道要压。
+ */
+private fun 压缩并上传(
+    上下文: android.content.Context,
+    uri: android.net.Uri,
+    状态: 主状态,
+    上限KB: Int
+) {
+    try {
+        val 图 = 解位图(上下文, uri) ?: run {
+            状态.提示.value = "读不出这张图"
+            return
+        }
+        val 结果 = 按质量压缩(图, 上限KB)
+        if (!结果.达标) {
+            状态.提示.value = "这张图压到最低质量仍有 ${结果.最小体积 / 1024}KB，" +
+                "超过上限 ${上限KB}KB。请先裁掉不需要的部分，或换一张尺寸更小的图。"
+            return
+        }
+        状态.加图(结果.字节, "图片.jpg", "image/jpeg", uri.toString())
+    } catch (e: Exception) {
+        状态.提示.value = "压缩失败：" + (e.message ?: "未知")
+    }
+}
+/**
+ * 选好图后的入口。
+ * 体积在上限以内就直接压默认质量后上传；超了则交给调用方弹窗询问，
+ * 本函数返回 true 表示需要确认。
+ */
+private fun 需要确认压缩(上下文: android.content.Context, uri: android.net.Uri, 上限KB: Int): Int {
+    if (上限KB <= 0) return 0
+    return try {
+        val 大小 = 上下文.contentResolver.openFileDescriptor(uri, "r")?.use {
+            it.statSize
+        } ?: 0L
+        if (大小 > 上限KB * 1024L) (大小 / 1024L).toInt() else 0
+    } catch (e: Exception) {
+        0
+    }
+}
+/**
+ * 本地图缩略图。
+ * 项目没引图片加载库，这里自己解码。inSampleSize 让解码直接出小图，
+ * 不先把整张原图读进内存再缩，避免连选几张就 OOM。
+ */
+@Composable
+private fun 缩略图(本地uri: String, 边长: androidx.compose.ui.unit.Dp) {
+    val 上下文 = LocalContext.current
+    val 密度 = LocalDensity.current
+    val 像素 = with(密度) { 边长.toPx() }.toInt().coerceAtLeast(1)
+    // 按 uri 缓存，重组时不重复解码
+    val 位图 = remember(本地uri, 像素) {
+        try {
+            val u = android.net.Uri.parse(本地uri)
+            val 界 = android.graphics.BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            上下文.contentResolver.openInputStream(u)?.use {
+                android.graphics.BitmapFactory.decodeStream(it, null, 界)
+            }
+            var 步 = 1
+            while (界.outHeight / (步 * 2) >= 像素 && 界.outWidth / (步 * 2) >= 像素) 步 *= 2
+            val 选项 = android.graphics.BitmapFactory.Options().apply { inSampleSize = 步 }
+            上下文.contentResolver.openInputStream(u)?.use {
+                android.graphics.BitmapFactory.decodeStream(it, null, 选项)
+            }?.asImageBitmap()
+        } catch (e: Exception) {
+            null
+        }
+    }
+    val 形 = RoundedCornerShape(8.dp)
+    if (位图 != null) {
+        Image(
+            bitmap = 位图,
+            contentDescription = "待发图片",
+            modifier = Modifier.size(边长).clip(形),
+            contentScale = ContentScale.Crop
+        )
+    } else {
+        // 解码失败也要占住位置，否则叉号会飘到左上角
+        Box(
+            Modifier
+                .size(边长)
+                .clip(形)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Filled.Image, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun 模型选择器(状态: 主状态) {
+    var 展开 by remember { mutableStateOf(false) }
+    // 价格弹窗单独一个开关，跟下拉菜单分开：价格是看当前选中的那个模型，
+    // 不需要跟下拉列表联动
+    var 显价格 by remember { mutableStateOf(false) }
+    val 当前模型项 = 状态.模型表.find { it.标识 == 状态.当前模型.value }
+    val 当前名 = 当前模型项?.名称 ?: 状态.当前模型.value.ifBlank { "模型" }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box {
+            TextButton(onClick = { 展开 = true }) {
+                Text(当前名, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 110.dp))
+                Icon(Icons.Filled.ArrowDropDown, null)
+            }
+            DropdownMenu(expanded = 展开, onDismissRequest = { 展开 = false }) {
+                状态.模型表.forEach { 模 ->
+                    DropdownMenuItem(
+                        text = { Text(模.名称) },
+                        onClick = {
+                            状态.当前模型.value = 模.标识
+                            展开 = false
+                        },
+                        trailingIcon = {
+                            if (模.标识 == 状态.当前模型.value) {
+                                Text("✓", color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+        // 价格不常看，做成图标按钮点开才显示，别在顶栏常驻占地方
+        IconButton(onClick = { 显价格 = true }, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Filled.Info, "查看价格", modifier = Modifier.size(18.dp))
+        }
+    }
+    if (显价格 && 当前模型项 != null) {
+        模型价格弹窗(当前模型项) { 显价格 = false }
+    }
+}
+/**
+ * 模型单价弹窗。四项都是每百万 token 的人民币单价，跟后台模型管理页配置一致。
+ * 后端没配的价格项显示「未配置」，不当成 0 元展示，免得让人以为真的不要钱。
+ */
+@Composable
+private fun 模型价格弹窗(模: 模型项, 关闭: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = 关闭,
+        title = { Text(模.名称 + " 价格") },
+        text = {
+            Column {
+                Text("单位：元 / 百万 token", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                价格行("输入", 模.输入价)
+                价格行("输出", 模.输出价)
+                价格行("缓存读（↓缓存，命中缓存的输入）", 模.缓存读价)
+                价格行("缓存写（↑缓存，缓存创建）", 模.缓存写价)
+            }
+        },
+        confirmButton = { TextButton(onClick = 关闭) { Text("知道了") } }
+    )
+}
+@Composable
+private fun 价格行(标签: String, 值: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(标签, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            if (值.isBlank() || 值.toDoubleOrNull() == null) "未配置" else "￥$值",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+@Composable
+    @OptIn(ExperimentalMaterial3Api::class)
+private fun 侧栏(状态: 主状态, 收起: () -> Unit) {
+    var 显退出确认 by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        // 顶部：账号信息
+        Column(Modifier.padding(16.dp)) {
+            Text("岩羊Ai", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            if (状态.我的.value.邮箱.isNotBlank()) {
+                Text(
+                    状态.我的.value.邮箱,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        HorizontalDivider()
+        // 新建项目
+        var 显新建弹窗 by remember { mutableStateOf(false) }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { 状态.取服务器列表(); 显新建弹窗 = true }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.Add, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(8.dp))
+            Text("新建项目", color = MaterialTheme.colorScheme.primary)
+        }
+        if (显新建弹窗) {
+            var 名称 by remember { mutableStateOf("") }
+            var 简介 by remember { mutableStateOf("") }
+            var 技术栈 by remember { mutableStateOf("") }
+            var 部署目录 by remember { mutableStateOf("") }
+            var 站点地址 by remember { mutableStateOf("") }
+            var 选服务器 by remember { mutableStateOf("") }
+            var 展服务器 by remember { mutableStateOf(false) }
+            var 错误信息 by remember { mutableStateOf("") }
+            AlertDialog(
+                properties = DialogProperties(usePlatformDefaultWidth = false),
+                onDismissRequest = { 显新建弹窗 = false },
+                title = { Text("新建项目") },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
+                        OutlinedTextField(名称, { 名称 = it }, label = { Text("项目名称") }, singleLine = true)
+                        if (错误信息.isNotEmpty()) {
+                            Text(错误信息, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(简介, { 简介 = it }, label = { Text("简介") }, maxLines = 3)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(技术栈, { 技术栈 = it }, label = { Text("技术栈") }, singleLine = true)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(部署目录, { 部署目录 = it }, label = { Text("部署目录") }, singleLine = true)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(站点地址, { 站点地址 = it }, label = { Text("站点地址") }, singleLine = true)
+                        Spacer(Modifier.height(8.dp))
+                        ExposedDropdownMenuBox(
+                            expanded = 展服务器,
+                            onExpandedChange = { 展服务器 = it }
+                        ) {
+                            OutlinedTextField(
+                                value = 选服务器.let { id -> 状态.服务器表.find { it.id == id }?.名称 ?: "未选择" },
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("关联服务器") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = 展服务器) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true),
+                                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = 展服务器,
+                                onDismissRequest = { 展服务器 = false }
+                            ) {
+                                状态.服务器表.forEach { h ->
+                                    DropdownMenuItem(
+                                        text = { Text("${h.名称} (${h.地址}:${h.端口})") },
+                                        onClick = { 选服务器 = h.id; 展服务器 = false }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        if (名称.isNotBlank()) {
+                            状态.新建项目(项目(
+                                id = "",
+                                名称 = 名称.trim(),
+                                简介 = 简介.trim(),
+                                技术栈 = 技术栈.trim(),
+                                主机id = 选服务器,
+                                部署目录 = 部署目录.trim(),
+                                站点地址 = 站点地址.trim()
+                            ))
+                            收起()
+                            显新建弹窗 = false
+                        } else {
+                            错误信息 = "请填写项目名称"
+                        }
+                    }) { Text("创建") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { 显新建弹窗 = false }) { Text("取消") }
+                }
+            )
+        }
+        // 当前正在编辑的项目，null 表示没开弹窗
+        var 编辑项目 by remember { mutableStateOf<项目?>(null) }
+        // 待确认删除的项目，null 表示没开弹窗
+        var 要删的项目 by remember { mutableStateOf<项目?>(null) }
+        要删的项目?.let { 项 ->
+            AlertDialog(
+                onDismissRequest = { 要删的项目 = null },
+                title = { Text("删除项目") },
+                text = {
+                    Text(
+                        "删除项目「${项.名称}」？\n" +
+                        "项目下还有对话时删不掉，服务端会告诉你还剩几条。"
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        状态.删项目(项)
+                        要删的项目 = null
+                    }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { 要删的项目 = null }) { Text("取消") }
+                }
+            )
+        }
+        // 项目分组
+        状态.项目表.forEach { 项 ->
+            val 展开了 = 状态.已展开.contains(项.id)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { 状态.切项目展开(项.id) }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(if (展开了) "▾" else "▸", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    项.名称,
+                    Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                // 代码仓
+                IconButton(
+                    onClick = {
+                        状态.开代码仓(项)
+                        收起()
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Folder, "代码仓",
+                        Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                // 编辑项目
+                IconButton(
+                    onClick = {
+                        状态.取服务器列表()
+                        编辑项目 = 项
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Edit, "编辑项目",
+                        Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                // 删除项目。工作中心挪到侧栏底部去了,这里让位给删除，
+                // 免得项目多了想删一个还得先进设置页找。
+                IconButton(
+                    onClick = { 要删的项目 = 项 },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Delete, "删除项目",
+                        Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+            if (展开了) {
+                状态.项目下会话(项.id).forEach { 会 ->
+                    会话行(会, 状态, 缩进 = 32.dp, 收起 = 收起)
+                }
+                // 项目内新建
+                Text(
+                    "＋ 在此项目新建",
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            状态.新建会话(项.id)
+                            收起()
+                        }
+                        .padding(start = 32.dp, top = 6.dp, bottom = 10.dp, end = 16.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+        // 编辑项目弹窗。字段与新建项目一致，打开时用当前项目的值回填。
+        编辑项目?.let { 原项 ->
+            // key(原项.id) 让每个项目各自持有一份输入状态，
+            // 否则连着编辑两个项目时会沿用上一个的旧值。
+            key(原项.id) {
+                var 名称 by remember { mutableStateOf(原项.名称) }
+                var 简介 by remember { mutableStateOf(原项.简介) }
+                var 技术栈 by remember { mutableStateOf(原项.技术栈) }
+                var 部署目录 by remember { mutableStateOf(原项.部署目录) }
+                var 站点地址 by remember { mutableStateOf(原项.站点地址) }
+                var 选服务器 by remember { mutableStateOf(原项.主机id) }
+                var 展服务器 by remember { mutableStateOf(false) }
+                var 错误信息 by remember { mutableStateOf("") }
+                AlertDialog(
+                    properties = DialogProperties(usePlatformDefaultWidth = false),
+                    onDismissRequest = { 编辑项目 = null },
+                    title = { Text("编辑项目") },
+                    text = {
+                        Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
+                            OutlinedTextField(名称, { 名称 = it }, label = { Text("项目名称") }, singleLine = true)
+                            if (错误信息.isNotEmpty()) {
+                                Text(
+                                    错误信息,
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(简介, { 简介 = it }, label = { Text("简介") }, maxLines = 3)
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(技术栈, { 技术栈 = it }, label = { Text("技术栈") }, singleLine = true)
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(部署目录, { 部署目录 = it }, label = { Text("部署目录") }, singleLine = true)
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(
+                                站点地址,
+                                { 站点地址 = it },
+                                label = { Text("站点地址") },
+                                // 后端要求带协议头，不带会被拒（inc/project.php 第 77 行）
+                                placeholder = { Text("https://例子.com") },
+                                singleLine = true
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            ExposedDropdownMenuBox(
+                                expanded = 展服务器,
+                                onExpandedChange = { 展服务器 = it }
+                            ) {
+                                OutlinedTextField(
+                                    value = 选服务器.let { id ->
+                                        状态.服务器表.find { it.id == id }?.名称 ?: "未选择"
+                                    },
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("关联服务器") },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = 展服务器) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true),
+                                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = 展服务器,
+                                    onDismissRequest = { 展服务器 = false }
+                                ) {
+                                    // 允许解绑：选「不关联」后 host_id 传空，后端存 0
+                                    DropdownMenuItem(
+                                        text = { Text("不关联服务器") },
+                                        onClick = { 选服务器 = ""; 展服务器 = false }
+                                    )
+                                    状态.服务器表.forEach { h ->
+                                        DropdownMenuItem(
+                                            text = { Text("${h.名称} (${h.地址}:${h.端口})") },
+                                            onClick = { 选服务器 = h.id; 展服务器 = false }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            if (名称.isBlank()) {
+                                错误信息 = "请填写项目名称"
+                            } else {
+                                状态.改项目(
+                                    原项.copy(
+                                        名称 = 名称.trim(),
+                                        简介 = 简介.trim(),
+                                        技术栈 = 技术栈.trim(),
+                                        主机id = 选服务器,
+                                        部署目录 = 部署目录.trim(),
+                                        站点地址 = 站点地址.trim()
+                                    )
+                                )
+                                编辑项目 = null
+                            }
+                        }) { Text("保存") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { 编辑项目 = null }) { Text("取消") }
+                    }
+                )
+            }
+        }
+        // 不属于任何项目的会话
+        val 散 = 状态.散会话()
+        if (散.isNotEmpty()) {
+            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+            Text(
+                "其他对话",
+                Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            散.forEach { 会 -> 会话行(会, 状态, 缩进 = 16.dp, 收起 = 收起) }
+        }
+        Spacer(Modifier.height(12.dp))
+        HorizontalDivider()
+        // 工作中心：账号专属文件库，和网页端 workspace.php 同一份数据。
+        // 放在登记服务器上面，跟它一样属于「跟项目无关的全局入口」。
+        NavigationDrawerItem(
+            icon = { Icon(Icons.Filled.Folder, null) },
+            label = { Text("工作中心") },
+            selected = false,
+            onClick = {
+                状态.开工作中心()
+                收起()
+            },
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+        )
+        Spacer(Modifier.height(4.dp))
+        NavigationDrawerItem(
+            icon = { Icon(Icons.Filled.Settings, null) },
+            label = { Text("登记服务器") },
+            selected = false,
+            onClick = {
+                状态.登记服务器()
+                收起()
+            },
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+        )
+        Spacer(Modifier.height(4.dp))
+        NavigationDrawerItem(
+            icon = { Icon(Icons.Filled.Settings, null) },
+            label = { Text("退出登录") },
+            selected = false,
+            onClick = {
+                显退出确认 = true
+            },
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+        )
+        版本更新项()
+        Spacer(Modifier.height(16.dp))
+    }
+    
+    if (显退出确认) {
+        AlertDialog(
+            onDismissRequest = { 显退出确认 = false },
+            title = { Text("确认退出") },
+            text = { Text("退出登录后需要重新输入密钥才能使用，确定要退出吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    显退出确认 = false
+                    状态.退出登录()
+                    收起()
+                }) { Text("退出") }
+            },
+            dismissButton = {
+                TextButton(onClick = { 显退出确认 = false }) { Text("取消") }
+            }
+        )
+    }
+}
+/**
+ * 菜单栏最下面的版本更新项。
+ *
+ * 进侧栏就自动查一次，所以用户点之前就能看到版本号；有新版时整行标红并加感叹号。
+ * 查询走后台线程，失败只在副标题写一句，不弹窗——菜单栏里弹错误框很烦人。
+ *
+ * 点「版本更新」弹窗显示更新内容，在应用内下载并显示进度，
+ * 下完校验 SHA-256 再拉起系统安装界面，不跳浏览器。
+ */
+@Composable
+private fun 版本更新项() {
+    val 上下文 = LocalContext.current
+    val 协程 = rememberCoroutineScope()
+    var 信息 by remember { mutableStateOf<版本信息?>(null) }
+    var 查询中 by remember { mutableStateOf(true) }
+    var 显更新弹窗 by remember { mutableStateOf(false) }
+    // 侧栏首次组合时查一次。LaunchedEffect(Unit) 保证只查一次，
+    // 用户反复开关抽屉不会每次都打一遍网络请求。
+    LaunchedEffect(Unit) {
+        查询中 = true
+        信息 = withContext(Dispatchers.IO) { 版本检查.查(BuildConfig.VERSION_NAME) }
+        查询中 = false
+    }
+    val 有新版 = 信息?.有新版 == true
+    // 有新版用错误色（红），平时用正常前景色
+    val 主色 = if (有新版) MaterialTheme.colorScheme.error
+               else MaterialTheme.colorScheme.onSurfaceVariant
+    NavigationDrawerItem(
+        icon = {
+            if (有新版) {
+                Icon(Icons.Filled.Warning, "有新版本", tint = 主色)
+            } else {
+                Icon(Icons.Filled.Refresh, null)
+            }
+        },
+        label = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (有新版) "版本更新" else "检查更新",
+                        color = 主色,
+                        fontWeight = if (有新版) FontWeight.Bold else FontWeight.Normal
+                    )
+                    if (有新版) {
+                        Text(
+                            " ！",
+                            color = 主色,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                }
+                // 副标题：当前版本号始终显示，这样用户点之前就知道自己是哪一版
+                Text(
+                    when {
+                        查询中 -> "当前 " + BuildConfig.VERSION_NAME + "，正在检查…"
+                        信息?.出错?.isNotEmpty() == true -> "当前 " + BuildConfig.VERSION_NAME + "，检查失败"
+                        有新版 -> "当前 " + BuildConfig.VERSION_NAME + " → 新版 " + (信息?.最新版 ?: "")
+                        else -> "当前 " + BuildConfig.VERSION_NAME + "，已是最新"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = 主色
+                )
+            }
+        },
+        selected = false,
+        onClick = {
+            val 当前 = 信息
+            when {
+                // 有新版且拿到了下载地址：开更新弹窗，在应用内下载
+                当前?.有新版 == true && 当前.下载地址.isNotEmpty() -> 显更新弹窗 = true
+                // 没新版、或查询失败：点一下重查，给用户一个手动重试的入口
+                else -> 协程.launch {
+                    查询中 = true
+                    信息 = withContext(Dispatchers.IO) { 版本检查.查(BuildConfig.VERSION_NAME) }
+                    查询中 = false
+                }
+            }
+        },
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+    )
+    // 更新弹窗。放在这里而不是抽屉外层：状态跟着这个菜单项走，
+    // 抽屉收起时弹窗照样在，用户不会因为误触抽屉丢掉下载进度。
+    val 当前信息 = 信息
+    if (显更新弹窗 && 当前信息 != null) {
+        更新弹窗(信息 = 当前信息, 关闭 = { 显更新弹窗 = false })
+    }
+}
+@Composable
+private fun 会话行(会: 会话, 状态: 主状态, 缩进: androidx.compose.ui.unit.Dp, 收起: () -> Unit) {
+    val 选中 = 状态.当前会话.value?.id == 会.id
+    var 要删 by remember { mutableStateOf(false) }
+    var 要改名 by remember { mutableStateOf(false) }
+    var 新名 by remember { mutableStateOf("") }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(
+                if (选中) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
+            )
+            .clickable {
+                状态.选会话(会)
+                收起()
+            }
+            .padding(start = 缩进, end = 8.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            会.标题.ifBlank { "未命名" },
+            Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        IconButton(onClick = {
+            新名 = 会.标题
+            要改名 = true
+        }, modifier = Modifier.size(32.dp)) {
+            Icon(
+                Icons.Filled.Edit, "重命名",
+                Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        IconButton(onClick = { 要删 = true }, modifier = Modifier.size(32.dp)) {
+            Icon(
+                Icons.Filled.Delete, "删除",
+                Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+    if (要改名) {
+        AlertDialog(
+            onDismissRequest = { 要改名 = false },
+            title = { Text("重命名对话") },
+            text = {
+                OutlinedTextField(
+                    value = 新名,
+                    onValueChange = { 新名 = it },
+                    label = { Text("对话名称") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (新名.isNotBlank()) {
+                        状态.改会话名(会, 新名.trim())
+                        要改名 = false
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { 要改名 = false }) { Text("取消") }
+            }
+        )
+    }
+    if (要删) {
+        AlertDialog(
+            onDismissRequest = { 要删 = false },
+            title = { Text("删除对话") },
+            text = { Text("删掉「${会.标题.ifBlank { "未命名" }}」？删除后无法恢复。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    状态.删会话(会)
+                    要删 = false
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { 要删 = false }) { Text("取消") }
+            }
+        )
+    }
+}
+/**
+ * 版本更新弹窗：显示更新内容，应用内下载并显示进度，下完拉起安装。
+ *
+ * 下载中不允许点外面关掉（dismissOnClickOutside = false）：
+ * 误触关掉会让协程随组合一起销毁，进度白跑。要中断得点「取消」。
+ */
+@Composable
+internal fun 更新弹窗(
+    信息: 版本信息,
+    关闭: () -> Unit,
+    /**
+     * 强制更新时的退出动作。传了就是强制模式：
+     * 点外面和返回键都关不掉，下方按钮是「退出」而不是「以后再说」。
+     */
+    强制退出: (() -> Unit)? = null
+) {
+    val 强制 = 强制退出 != null
+    val 上下文 = LocalContext.current
+    val 协程 = rememberCoroutineScope()
+    // 下载任务句柄。留着是为了「取消」能真正中断，而不只是关掉界面
+    var 任务 by remember { mutableStateOf<Job?>(null) }
+    var 进度 by remember { mutableStateOf(下载进度()) }
+    var 下载中 by remember { mutableStateOf(false) }
+    var 错误 by remember { mutableStateOf("") }
+    // 下载完成的文件。留着让用户在安装界面按返回后还能再点一次「立即安装」
+    var 完成文件 by remember { mutableStateOf<java.io.File?>(null) }
+    /** 字节数转成人看得懂的 MB */
+    fun 兆(字节: Long): String = String.format("%.1f MB", 字节 / 1048576.0)
+    AlertDialog(
+        // 强制模式下点外面、按返回都不关，用户只能走「立即更新」或「退出」
+        onDismissRequest = { if (!下载中 && !强制) 关闭() },
+        properties = DialogProperties(
+            dismissOnClickOutside = false,
+            dismissOnBackPress = false
+        ),
+        icon = { Icon(Icons.Filled.Warning, null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("发现新版本 " + 信息.最新版) },
+        text = {
+            Column {
+                Text(
+                    "当前版本 " + 信息.当前版,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (信息.大小 > 0L) {
+                    Text(
+                        "安装包 " + 兆(信息.大小),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                // 更新内容。服务端没给就写一句占位，不留空白让人以为加载失败
+                Text("更新内容", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    信息.更新日志.ifBlank { "本次更新未提供说明。" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    // 更新日志可能很长，给个上限让它自己滚，别把按钮挤出屏幕
+                    modifier = Modifier
+                        .heightIn(max = 200.dp)
+                        .verticalScroll(rememberScrollState())
+                )
+                if (下载中 || 完成文件 != null) {
+                    Spacer(Modifier.height(16.dp))
+                    val 比例 = 进度.比例
+                    if (比例 != null) {
+                        LinearProgressIndicator(
+                            progress = { 比例 },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        // 总长未知，用不确定进度条，别显示一个假的百分比
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        when {
+                            完成文件 != null -> "下载完成，准备安装"
+                            比例 != null -> 进度.百分比.toString() + "%  " +
+                                兆(进度.已下) + " / " + 兆(进度.总长)
+                            else -> "已下载 " + 兆(进度.已下)
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (错误.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        错误,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            val 文件 = 完成文件
+            when {
+                // 下完了：点一下装。装到一半退回来还能再点
+                文件 != null -> TextButton(onClick = {
+                    更新下载.装(上下文, 文件).onFailure {
+                        错误 = "拉起安装失败：" + (it.message ?: "未知原因")
+                    }
+                }) { Text("立即安装") }
+                下载中 -> TextButton(onClick = {}, enabled = false) { Text("下载中…") }
+                else -> TextButton(onClick = {
+                    错误 = ""
+                    下载中 = true
+                    进度 = 下载进度()
+                    任务 = 协程.launch {
+                        val 结果 = 更新下载.下(
+                            上下文 = 上下文,
+                            地址 = 信息.下载地址,
+                            版本号 = 信息.最新版.ifBlank { "new" },
+                            期望校验值 = 信息.校验值,
+                            期望大小 = 信息.大小
+                        ) { 新进度 ->
+                            // 回调在 IO 线程，这里赋值的是 Compose 状态，
+                            // 状态本身是线程安全的，重组会自动切回主线程
+                            进度 = 新进度
+                        }
+                        下载中 = false
+                        结果.onSuccess { 包 ->
+                            完成文件 = 包
+                            // 下完直接拉安装，不用用户再点一次
+                            更新下载.装(上下文, 包).onFailure {
+                                错误 = "拉起安装失败：" + (it.message ?: "未知原因") +
+                                    "\n可点「立即安装」重试"
+                            }
+                        }.onFailure {
+                            错误 = it.message ?: "下载失败"
+                        }
+                    }
+                }) { Text(if (错误.isEmpty()) "立即更新" else "重试") }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                // 下载中点这个要真的中断协程，否则任务在后台跑完还会弹安装
+                // 先把「点下去那一刻是不是在下载」记下来。
+                // 下面要先置 false 再判断，不留这个快照就永远判不出取消下载。
+                val 是取消下载 = 下载中
+                任务?.cancel()
+                下载中 = false
+                when {
+                    // 取消下载只中断传输，弹窗留着让用户重试，别顺手把应用关了
+                    是取消下载 -> Unit
+                    // 强制模式点「退出」要真的退出应用，不是关掉弹窗回到界面：
+                    // 关掉弹窗等于绕过了强制更新，那这个开关就白设了
+                    强制 -> 强制退出?.invoke()
+                    else -> 关闭()
+                }
+            }) {
+                Text(
+                    when {
+                        下载中 -> "取消"
+                        强制 -> "退出"
+                        else -> "以后再说"
+                    }
+                )
+            }
+        }
+    )
+}
+
+/**
+ * 顶栏的提示音开关。点一下弹面板，里面有开关、音量条和试听。
+ *
+ * 同时负责在这里真正把声音放出来：主状态只把「该响了」的信号自增，
+ * 播放需要 Context，放在 UI 层拿最顺手。
+ */
+@Composable
+private fun 提示音按钮(状态: 主状态) {
+    val 上下文 = LocalContext.current
+    val 用户id = 状态.我的.value.id.toString()
+    var 开着 by remember(用户id) { mutableStateOf(声设置.开着(上下文, 用户id)) }
+    var 音量 by remember(用户id) { mutableStateOf(声设置.音量(上下文, 用户id)) }
+    var 显面板 by remember { mutableStateOf(false) }
+    // 响铃已经挪到 主界面.kt 的 全局提示音()，这里只管开关和音量的界面，
+    // 不要再监听信号，否则停在对话页时会重复响两声。
+    IconButton(onClick = { 显面板 = true }) {
+        Icon(
+            if (开着) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
+            if (开着) "任务完成提示音：已开启（" + 音量 + "%）" else "任务完成提示音：已关闭"
+        )
+    }
+    if (显面板) {
+        AlertDialog(
+            onDismissRequest = { 显面板 = false },
+            title = { Text("任务完成提示音") },
+            text = {
+                Column {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("回答结束时响一声")
+                        Switch(
+                            checked = 开着,
+                            onCheckedChange = { 新值 ->
+                                开着 = 新值
+                                声设置.设开关(上下文, 用户id, 新值)
+                                // 打开时立刻响一声，让用户当场听到当前音量
+                                if (新值) 提示音.响(上下文, 音量)
+                            }
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "音量 " + 音量 + "%",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Slider(
+                        value = 音量.toFloat(),
+                        onValueChange = { 新值 -> 音量 = 新值.toInt() },
+                        // 松手才存盘并试听：拖动过程中每一帧都响会糊成一片
+                        onValueChangeFinished = {
+                            声设置.设音量(上下文, 用户id, 音量)
+                            提示音.响(上下文, 音量)
+                        },
+                        valueRange = 声设置.最小音量.toFloat()..声设置.最大音量.toFloat()
+                    )
+                    Text(
+                        "响的时候会自动压低正在播放的音乐，响完恢复。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { 显面板 = false }) { Text("完成") }
+            },
+            dismissButton = {
+                // 关闭状态下也能试听，方便先听效果再决定开不开
+                TextButton(onClick = { 提示音.响(上下文, 音量) }) { Text("试听") }
+            }
+        )
+    }
+}

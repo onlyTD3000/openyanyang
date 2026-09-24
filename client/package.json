@@ -1,0 +1,63 @@
+{
+  "name": "yanyang-chat",
+  "version": "1.2.13",
+  "description": "岩羊Ai 桌面客户端",
+  "main": "main.js",
+  "author": "岩羊Ai",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "app-builder-bin": "^4.0.0",
+    "electron": "^31.3.1",
+    "electron-builder": "24.13.3"
+  },
+  "build": {
+    "appId": "cn.bot77.yanyang.chat",
+    "electronDist": "node_modules/electron/dist",
+    "productName": "岩羊Ai",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "本地ssh.js",
+      "本地sftp.js",
+      "preload.js",
+      "preload-term.js",
+      "preload-files.js",
+      "updater.js",
+      "preview-view.js",
+      "audio/**",
+      "renderer/**/*",
+      "!**/*.bak*"
+    ],
+    "win": {
+      "certificateFile": "build/signing.pfx",
+      "certificatePassword": "yanyang77",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "岩羊Ai",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    }
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  }
+}

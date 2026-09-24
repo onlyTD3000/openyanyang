@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 下载的 APK 放在应用外部缓存目录下的 update 子目录。
+         用 external-cache-path 而不是内部存储：系统安装器要能读到这个文件，
+         外部缓存目录随应用卸载一起清理，不用自己操心残留。 -->
+    <external-cache-path name="update" path="update/" />
+    <!-- 少数设备没有外部存储可用，回退到内部缓存 -->
+    <cache-path name="internal_update" path="update/" />
+</paths>

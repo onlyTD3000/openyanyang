@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<!-- 和终端窗口同一套 CSP：只允许本地资源，这个页面不加载任何外部脚本 -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none';">
+<title>文件管理</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #12141a; color: #d7dce5;
+    font: 13px/1.5 "Microsoft YaHei", system-ui, sans-serif;
+    user-select: none;
+  }
+  body { display: flex; flex-direction: column; }
+  /* 顶部路径条。按钮样式跟终端窗口保持一致，两个窗口挨着放不能长得不一样 */
+  .条钮 {
+    padding: 3px 9px; font: inherit; font-size: 12px; color: #cfd6e4;
+    background: #262b34; border: 1px solid #363d4a; border-radius: 4px;
+    cursor: pointer; white-space: nowrap;
+  }
+  .条钮:hover { background: #2f353f; }
+  .条钮:disabled { opacity: .5; cursor: default; }
+  #顶栏 {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+    padding: 7px 8px; border-bottom: 1px solid #242935; background: #171a21;
+  }
+  #路径 {
+    flex: 1 1 auto; min-width: 0; padding: 3px 8px;
+    font: inherit; font-size: 12px; color: #d7dce5;
+    background: #0e1015; border: 1px solid #2b313d; border-radius: 4px;
+    user-select: text;
+  }
+  #路径:focus { outline: none; border-color: #3d6fd4; }
+  /* 工具条第二行：新建、上传这类动作。挤在一行会放不下 */
+  #动作栏 {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; border-bottom: 1px solid #242935;
+  }
+  #动作栏 .撑 { flex: 1 1 auto; }
+  #选中数 { font-size: 12px; color: #8892a4; }
+  #列表 { flex: 1 1 auto; overflow: auto; position: relative; }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    position: sticky; top: 0; z-index: 1;
+    padding: 6px 8px; text-align: left; font-size: 12px; font-weight: 600;
+    color: #7c8798; background: #171a21; border-bottom: 1px solid #242935;
+    white-space: nowrap;
+  }
+  td {
+    padding: 4px 8px; font-size: 12px; border-bottom: 1px solid #1c202a;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  tr:hover td { background: #1a1e27; }
+  tr.选中 td { background: #1e2739; }
+  .列勾 { width: 26px; }
+  .列名 { width: auto; min-width: 120px; }
+  .列小 { width: 74px; text-align: right; }
+  .列时 { width: 116px; }
+  .列操 { width: 96px; }
+  /* 名字那格：图标 + 文字，文字过长要能省略 */
+  .名格 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .名字 {
+    overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+    user-select: text;
+  }
+  .名字:hover { color: #7aa2f7; text-decoration: underline; }
+  .图 { flex: 0 0 auto; opacity: .75; }
+  .是夹 .名字 { color: #e0c98a; }
+  .操作 { display: flex; gap: 4px; }
+  .微钮 {
+    padding: 1px 6px; font: inherit; font-size: 11px; color: #9aa5b8;
+    background: transparent; border: 1px solid #333a47; border-radius: 3px;
+    cursor: pointer;
+  }
+  .微钮:hover { color: #d7dce5; background: #262b34; }
+  .微钮.危 { border-color: #4a2c30; color: #d98b93; }
+  .微钮.危:hover { background: #352326; color: #f0a8ae; }
+  #提示 { padding: 14px; color: #7c8798; font-size: 12px; }
+  #提示.错 { color: #e08b93; }
+  /* 拖拽罩。拖文件进来时盖上，给个明确的落点反馈 */
+  #拖罩 {
+    position: fixed; inset: 0; z-index: 20;
+    background: rgba(18,20,26,.86);
+    border: 2px dashed #3d6fd4;
+    display: flex; align-items: center; justify-content: center;
+    color: #9fc0ff; font-size: 14px; text-align: center; padding: 20px;
+  }
+  #拖罩[hidden] { display: none; }
+  /* 上传进度条，贴在列表底部 */
+  #进度 {
+    flex: 0 0 auto; padding: 6px 8px; border-top: 1px solid #242935;
+    font-size: 12px; color: #8892a4;
+  }
+  #进度[hidden] { display: none; }
+  #进度条 { height: 3px; background: #242935; border-radius: 2px; margin-top: 4px; }
+  #进度块 { height: 100%; width: 0; background: #3d6fd4; border-radius: 2px; transition: width .15s; }
+  /* 编辑器：盖在列表上的整页视图，不再套一层小弹框，
+     窗口本身就窄，弹框再留边距就没地方写字了 */
+  #编辑层 {
+    position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column;
+    background: #12141a;
+  }
+  #编辑层[hidden] { display: none; }
+  #编辑头 {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+    padding: 7px 8px; border-bottom: 1px solid #242935; background: #171a21;
+  }
+  #编辑名 {
+    flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #编辑态 { flex: 0 0 auto; font-size: 11px; color: #8892a4; }
+  #编辑区 {
+    flex: 1 1 auto; min-height: 0; width: 100%; resize: none;
+    padding: 8px; border: 0; outline: none; user-select: text;
+    background: #0e1015; color: #d7dce5;
+    font: 12px/1.55 Consolas, "Courier New", monospace;
+    tab-size: 4; white-space: pre;
+  }
+</style>
+</head>
+<body>
+  <div id="顶栏">
+    <button id="上级" class="条钮" type="button" title="上一级">↑</button>
+    <button id="家" class="条钮" type="button" title="回到家目录">家</button>
+    <input id="路径" type="text" spellcheck="false" title="输入路径回车跳转">
+    <button id="刷新" class="条钮" type="button">刷新</button>
+  </div>
+  <div id="动作栏">
+    <button id="新建夹" class="条钮" type="button">新建文件夹</button>
+    <button id="新建件" class="条钮" type="button">新建文件</button>
+    <button id="上传" class="条钮" type="button">上传</button>
+    <span class="撑"></span>
+    <span id="选中数"></span>
+    <button id="批删" class="条钮" type="button" disabled>删除</button>
+  </div>
+  <div id="列表">
+    <table>
+      <thead><tr>
+        <th class="列勾"><input id="全选" type="checkbox" title="全选"></th>
+        <th class="列名">名称</th>
+        <th class="列小">大小</th>
+        <th class="列时">修改时间</th>
+        <th class="列操">操作</th>
+      </tr></thead>
+      <tbody id="行们"></tbody>
+    </table>
+    <div id="提示">正在读取…</div>
+  </div>
+  <div id="进度" hidden>
+    <span id="进度文"></span>
+    <div id="进度条"><div id="进度块"></div></div>
+  </div>
+  <div id="拖罩" hidden><div>松手上传到当前目录</div></div>
+  <div id="编辑层" hidden>
+    <div id="编辑头">
+      <span id="编辑名">文件</span>
+      <span id="编辑态"></span>
+      <button id="编辑存" class="条钮" type="button">保存</button>
+      <button id="编辑关" class="条钮" type="button">关闭</button>
+    </div>
+    <textarea id="编辑区" spellcheck="false" wrap="off"></textarea>
+  </div>
+  <!-- 隐藏的文件选择框，「上传」按钮点它 -->
+  <input id="选文件" type="file" multiple hidden>
+  <script src="files.js"></script>
+</body>
+</html>

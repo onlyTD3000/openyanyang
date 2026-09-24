@@ -1,0 +1,17 @@
+# 签名密钥和密码，绝对不能进版本库
+keystore.properties
+*.jks
+*.keystore
+# 构建产物
+build/
+app/build/
+.gradle/
+# 本地环境
+local.properties
+# 编辑器
+.idea/
+*.iml
+# 备份文件（改代码时留的时间戳副本）
+*.bak
+*.加更新前_*
+*.加安卓前_*

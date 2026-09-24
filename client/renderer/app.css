@@ -1,0 +1,1241 @@
+/* 岩羊Ai 桌面端样式。
+   配色照着网页端来，浅底深字，长时间看不累。 */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --底: #f7f8fa;
+  --面: #ffffff;
+  --线: #e4e6eb;
+  --字: #1f2329;
+  --淡字: #8a9099;
+  --主: #2563eb;
+  --主深: #1d4ed8;
+  --我的气泡: #e8f0fe;
+  --危险: #dc2626;
+  /* 卡片样式从网页端整段移植过来，用的是 --c-* 命名。
+     这里做一层别名映射到上面客户端自己的变量，
+     好处是卡片 CSS 一行都不用改，以后网页端更新可以直接覆盖。 */
+  --c-bg: var(--底);
+  --c-panel: var(--面);
+  --c-border: var(--线);
+  --c-border-soft: #eef0f3;
+  --c-text: var(--字);
+  --c-muted: var(--淡字);
+  --c-primary: var(--主);
+  --c-primary-soft: #eff4ff;
+  --c-ok: #16a34a;
+  --c-warn: #d97706;
+  --c-err: var(--危险);
+  --radius: 10px;
+  /* 自定义标题栏的高度。登录页和主界面都要减掉它，
+     不减的话底部会被顶出可视区，出现一条撑不满或溢出的高度。 */
+  --标题栏高: 32px;
+}
+
+body {
+  font: 14px/1.6 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  color: var(--字);
+  background: var(--底);
+  height: 100vh;
+  overflow: hidden;
+}
+/* ---------- 自定义标题栏 ----------
+   主进程 frame: false，这条替代原来的 Windows 边框。
+   整条可拖动，按钮必须单独标 no-drag，否则点不动——
+   拖动区会吞掉鼠标事件，按钮收不到 click。 */
+.标题栏 {
+  height: var(--标题栏高);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #eef1f6;
+  border-bottom: 1px solid var(--线);
+  user-select: none;
+  -webkit-app-region: drag;
+}
+.标题栏左 { display: flex; align-items: center; gap: 8px; padding-left: 10px; min-width: 0; }
+/* 图标：CSS 画的蓝色圆角方块，跟应用图标一个色系 */
+.标题栏图标 {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border-radius: 5px;
+  background: var(--主);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+.标题栏名 { font-size: 13px; color: var(--字次); white-space: nowrap; }
+/* 标题栏里的功能按钮。放在拖动条上，得把自己标成 no-drag 才点得到 */
+.标题栏钮 {
+  -webkit-app-region: no-drag;
+  margin-left: 6px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--字次);
+  background: #fff;
+  border: 1px solid var(--线);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.标题栏钮:hover { color: var(--主); border-color: var(--主); }
+.标题栏钮:focus-visible { outline: 2px solid var(--主); outline-offset: 1px; }
+/* 右侧三个窗口控制按钮。尺寸照 Windows 的习惯：46x32，无圆角，
+   贴着窗口右上角，关闭键悬停变红。 */
+.窗口控制 { display: flex; -webkit-app-region: no-drag; }
+.窗控钮 {
+  width: 46px;
+  height: var(--标题栏高);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--字);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.窗控钮:hover { background: rgba(0, 0, 0, .08); }
+.窗控钮:focus-visible { outline: 2px solid var(--主); outline-offset: -2px; }
+/* 关闭键单独处理：悬停时红底白字，这是 Windows 的通行约定，
+   用户不用看图标也知道是关闭 */
+.窗控钮.关闭:hover { background: #e81123; color: #fff; }
+
+.隐藏 { display: none !important; }
+
+/* ---------- 登录页 ---------- */
+.登录页 {
+  /* 减掉标题栏：body 是 100vh，标题栏占了 32px，
+     这里还写 100vh 会把登录卡往下顶出可视区 */
+  height: calc(100vh - var(--标题栏高));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.登录卡 {
+  width: 380px;
+  padding: 36px 32px;
+  background: var(--面);
+  border: 1px solid var(--线);
+  border-radius: 12px;
+}
+
+.登录卡 h1 { font-size: 24px; margin-bottom: 6px; }
+.副标 { color: var(--淡字); margin-bottom: 24px; }
+.标签 { display: block; margin-bottom: 6px; font-size: 13px; }
+
+.输入框 {
+  width: 100%;
+  padding: 10px 12px;
+  font: inherit;
+  border: 1px solid var(--线);
+  border-radius: 6px;
+  background: var(--面);
+  color: var(--字);
+}
+.输入框:focus { outline: 2px solid var(--主); outline-offset: -1px; }
+
+.记住行 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 20px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.主按钮 {
+  width: 100%;
+  padding: 11px;
+  font: inherit;
+  color: #fff;
+  background: var(--主);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.主按钮:hover { background: var(--主深); }
+.主按钮:disabled { background: #9db4e8; cursor: not-allowed; }
+.主按钮.小 { width: auto; padding: 8px 20px; }
+
+.次按钮 {
+  padding: 8px 14px;
+  font: inherit;
+  color: var(--字);
+  background: var(--面);
+  border: 1px solid var(--线);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.次按钮:hover { background: var(--底); }
+.次按钮.小 { padding: 8px 16px; }
+
+.提示 { min-height: 20px; margin-top: 12px; font-size: 13px; color: var(--危险); }
+.脚注 { margin-top: 16px; font-size: 12px; color: var(--淡字); }
+
+/* ---------- 主布局 ---------- */
+/* 同样减掉标题栏高度，否则侧栏底部的余额和退出按钮会掉到屏幕外 */
+.主界面 { display: flex; height: calc(100vh - var(--标题栏高)); }
+
+.侧栏 {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--面);
+  border-right: 1px solid var(--线);
+}
+
+.侧栏头 { padding: 12px; border-bottom: 1px solid var(--线); }
+
+.新建按钮 {
+  width: 100%;
+  padding: 9px;
+  font: inherit;
+  color: var(--主);
+  background: var(--面);
+  border: 1px dashed var(--主);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.新建按钮:hover { background: var(--我的气泡); }
+
+.侧栏体 { flex: 1; overflow-y: auto; padding: 12px 8px; }
+
+.小标题 { padding: 0 8px 8px; font-size: 12px; color: var(--淡字); }
+
+.项目列表 { list-style: none; }
+
+.项目名 {
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.项目名:hover { background: var(--底); }
+
+/* 项目来源标签：本地项目和云端项目使用不同颜色区分。 */
+.项目类型 {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.本地标签 { color: #166534; background: #dcfce7; }
+.云端标签 { color: #1d4ed8; background: #dbeafe; }
+
+.会话列表 { list-style: none; margin: 2px 0 8px 10px; }
+
+.会话项 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--字);
+}
+
+/* 标题占满剩余宽度，长标题在这里截断 */
+.会话标题 {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 操作按钮平时不占视觉重量，悬停或选中才显出来 */
+.会话操作 {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity .12s;
+}
+.会话项:hover .会话操作,
+.会话项.选中 .会话操作 { opacity: 1; }
+
+.会话钮 {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 4px;
+  border-radius: 4px;
+  opacity: .65;
+}
+.会话钮:hover { opacity: 1; background: rgba(0, 0, 0, .1); }
+.会话钮.危险:hover { background: #e5534b; color: #fff; }
+
+/* 键盘用户也要看得见焦点 */
+.会话钮:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--主深);
+  outline-offset: 1px;
+}
+
+.改名框 {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--字);
+  background: var(--底);
+  border: 1px solid var(--主深);
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+.会话项:hover { background: var(--底); }
+.会话项.选中 { background: var(--我的气泡); color: var(--主深); }
+
+.侧栏脚 {
+  padding: 12px;
+  border-top: 1px solid var(--线);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* ---------- 预览栏 ----------
+   夹在侧栏和聊天区中间。宽度存在 --预览宽 里，拖把手时改这个变量，
+   比直接改 style.width 好在：把手、栏体、最小宽限制都读同一个值。 */
+.预览栏 {
+  width: var(--预览宽, 420px);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: var(--面);
+  border-right: 1px solid var(--线);
+  min-width: 260px;
+}
+.预览条 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--线);
+  flex-shrink: 0;
+}
+.预览钮 {
+  font: inherit;
+  color: var(--字次);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.预览钮.图标 {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+}
+.预览钮:hover:not(:disabled) { color: var(--主); background: var(--底); }
+.预览钮:disabled { opacity: .35; cursor: default; }
+.预览钮:focus-visible { outline: 2px solid var(--主); outline-offset: 1px; }
+.预览地址 {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  color: var(--字);
+  background: #fff;
+  border: 1px solid var(--线);
+  border-radius: 6px;
+}
+.预览地址:focus { outline: none; border-color: var(--主); }
+/* 预览体要 position: relative，webview 和加载提示才能铺满/定位。
+   自己也必须是 flex 容器：舞台靠 flex:1 撑高，
+   父级是 block 的话舞台的 flex 属性根本不起作用，
+   高度会塌成内容高度，设备壳超出的部分被裁掉，下面露出这里的白底。 */
+.预览体 {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+/* webview 是替换元素，display 默认 inline，不设 block 底部会多一条空隙 */
+.预览体 webview {
+  display: block;
+  border: 0;
+}
+/* 电脑模式：铺满舞台。设备模式下宽高由 JS 写成行内像素值，
+   行内样式优先级高于这里，所以不会互相打架 */
+.预览舞台:not(.模拟) > webview { width: 100%; height: 100%; }
+/* 舞台：装 webview 或者装设备壳。
+   flex:1 + min-height:0 才能真正吃满预览体剩下的高度。
+   这里不能用 height:100% —— 百分比高度要求父级高度是确定值，
+   而预览体的高度是 flex 算出来的，传不下来，结果 webview 只有内容那么高。 */
+.预览舞台 {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  position: relative;
+}
+/* 模拟设备时：灰底衬出设备边界，装不下就滚动。
+   为什么允许滚动：webview 是 guest 进程的合成表面，
+   无论用 CSS zoom / transform 还是 enableDeviceEmulation 的 scale，
+   元素尺寸和 guest 自己算的绘制区域都对不齐，
+   结果总是只画顶上一条、下面一片空白。
+   干脆不缩，壳按设备原始尺寸摆，放不下让用户滚——
+   宁可多拖一下滚动条，也不能显示不全。
+   居中用 margin:0 auto（JS 写在 webview 上）+ align-items:flex-start。
+   垂直不用 auto 边距也不用 center：元素比舞台高时从顶边开始排更直观，
+   一上来看到的就是页面顶部，不用先往上滚。 */
+.预览舞台.模拟 {
+  overflow: auto;
+  background: #eceef1;
+  padding: 10px;
+  box-sizing: border-box;
+  align-items: flex-start;
+  justify-content: center;
+}
+/* 设备模拟时的 webview。宽高由 JS 写成设备原始尺寸的行内值，
+   居中靠 JS 设的 margin:auto。
+   这里不写 zoom / transform：webview 是 guest 进程的合成表面，
+   CSS 缩放会让它和宿主算的尺寸对不上，只画顶部一小条。 */
+.预览舞台.模拟 > webview {
+  display: block;
+  border: 0;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, .16);
+}
+/* 设备下拉。允许压缩，栏窄时先挤它，
+   不然整条工具条会溢出，把关闭按钮顶出可视区 */
+.预览设备 {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 118px;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  color: var(--字);
+  background: var(--面);
+  border: 1px solid var(--线);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.预览设备:focus-visible { outline: 2px solid var(--主); outline-offset: 1px; }
+/* 尺寸填错时标红。数字框自己不会提示超范围，得手动给反馈 */
+.输入错 { border-color: #d93025 !important; background: #fff5f5; }
+/* 当前尺寸提示，压在舞台右下角。
+   pointer-events:none 让鼠标穿过去，不然它会挡住页面右下角的东西 */
+.预览尺寸 {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, .55);
+  border-radius: 10px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.预览空态 {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px;
+  text-align: center;
+  color: var(--淡字);
+  font-size: 13px;
+}
+.预览空态小 { font-size: 12px; opacity: .8; }
+.预览加载 {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 12px;
+  font-size: 12px;
+  color: var(--字次);
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--线);
+  border-radius: 20px;
+  pointer-events: none;
+}
+/* 拖动把手。压在右边框上，做宽一点好抓，视觉上还是一条线 */
+.预览把手 {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+.预览把手:hover, .预览把手.拖着 { background: var(--主); opacity: .25; }
+.预览把手:focus-visible { outline: 2px solid var(--主); outline-offset: -2px; }
+/* 拖动中给 body 挂这个类：禁掉选中，
+   并且让指针在整个窗口都保持 col-resize，划出栏外也不会变回箭头 */
+body.在拖预览 { cursor: col-resize; user-select: none; }
+/* 拖动时鼠标一旦移到 webview 上，事件会被 guest 进程吃掉，
+   mousemove 就断了，表现是拖到一半突然不跟手。盖一层透明层挡住。 */
+body.在拖预览 .预览体::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+}
+/* ---------- 聊天区 ---------- */
+.聊天区 { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+.顶栏 {
+  padding: 12px 20px;
+  background: var(--面);
+  border-bottom: 1px solid var(--线);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.标题 {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.顶栏右 { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.开关 { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+
+.模型选择 {
+  padding: 7px 10px;
+  font: inherit;
+  border: 1px solid var(--线);
+  border-radius: 6px;
+  background: var(--面);
+  color: var(--字);
+  max-width: 260px;
+}
+
+.消息区 { flex: 1; overflow-y: auto; padding: 20px; }
+.空态 { color: var(--淡字); text-align: center; padding-top: 60px; }
+
+.消息 { margin-bottom: 18px; display: flex; }
+.消息.我 { justify-content: flex-end; }
+
+.气泡 {
+  max-width: 76%;
+  padding: 11px 15px;
+  border-radius: 10px;
+  background: var(--面);
+  border: 1px solid var(--线);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.消息.我 .气泡 { background: var(--我的气泡); border-color: #cfe0fd; }
+
+/* 思考过程折叠块 */
+.思考 {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--淡字);
+  background: var(--底);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.思考 summary { cursor: pointer; }
+
+.用量 { margin-top: 6px; font-size: 12px; color: var(--淡字); }
+
+/* 光标闪烁，让人看出还在生成 */
+.光标::after { content: '▋'; animation: 闪 1s steps(2) infinite; }
+@keyframes 闪 { 50% { opacity: 0; } }
+
+/* ---------- 输入区 ---------- */
+.输入区 {
+  padding: 12px 20px 16px;
+  background: var(--面);
+  border-top: 1px solid var(--线);
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.输入 {
+  flex: 1;
+  padding: 10px 12px;
+  font: inherit;
+  border: 1px solid var(--线);
+  border-radius: 8px;
+  resize: none;
+  background: var(--面);
+  color: var(--字);
+  max-height: 180px;
+}
+.输入:focus { outline: 2px solid var(--主); outline-offset: -1px; }
+
+.输入右 { flex-shrink: 0; }
+
+/* 滚动条细一点，别抢视线 */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-thumb { background: #d0d3d9; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #b8bcc4; }
+/* ---------- 通用图标按钮 ---------- */
+.图钮 {
+  font: inherit;
+  font-size: 13px;
+  color: var(--淡字);
+  background: transparent;
+  border: 1px solid var(--线);
+  border-radius: 6px;
+  padding: 5px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.图钮:hover:not(:disabled) { color: var(--主); border-color: var(--主); }
+.图钮:disabled { opacity: .45; cursor: not-allowed; }
+.图钮:focus-visible { outline: 2px solid var(--主); outline-offset: 1px; }
+.图钮.开启 { color: var(--主); border-color: var(--主); }
+.脚按钮组 { display: flex; align-items: center; gap: 6px; }
+/* 检查更新按钮的宽度必须定死。它的文字会在
+   「检查更新」→「检查中…」→「9%」→「37%」之间来回变，
+   宽度跟着文字变的话整行重排，数字看起来在乱跳，
+   还会把旁边的「退出」挤成两行。 */
+#检查更新钮 {
+  width: 84px;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: center;
+  flex: 0 0 84px;
+  /* 下载中显示百分比，等宽数字能让数字变化时不左右抖 */
+  font-variant-numeric: tabular-nums;
+}
+/* 「退出」两个字不许换行。空间不够时优先压缩别的，不要把它折断 */
+#退出 {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.底部提示 {
+  width: 100%;
+  font-size: 12px;
+  color: var(--淡字);
+  text-align: center;
+  padding-top: 6px;
+}
+/* ---------- 项目行上的操作按钮 ---------- */
+.项目操作 { display: flex; gap: 4px; align-items: center; margin-left: auto; }
+.项目钮 {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--淡字);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  padding: 3px 5px;
+  cursor: pointer;
+  opacity: .6;
+}
+.项目钮:hover { opacity: 1; color: var(--主); background: rgba(0, 0, 0, .06); }
+.项目钮:focus-visible { outline: 2px solid var(--主); outline-offset: 1px; opacity: 1; }
+/* 装 SVG 的图标按钮。行内 svg 默认按基线排，会比旁边的文字符号低一点，
+   用 flex 居中把它拉正，和 ＋ ⚙ ✕ 对齐 */
+.项目钮.图标钮 { display: inline-flex; align-items: center; justify-content: center; }
+.项目钮.图标钮 svg { display: block; }
+.项目名 .数量 { font-size: 12px; color: var(--淡字); }
+
+/* 输入区原来是单行 flex，底部提示要独占一行，允许换行才排得下 */
+.输入区 { flex-wrap: wrap; }
+.项目名 { align-items: center; }
+
+/* ---------- 代码仓面板 ----------
+   占满主区，和聊天区互斥。左树右编辑，都能独立滚动。 */
+.代码仓 { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+.仓顶栏 {
+  padding: 10px 16px;
+  background: var(--面);
+  border-bottom: 1px solid var(--线);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.仓项目名 { font-weight: 600; white-space: nowrap; }
+.仓概况 { font-size: 12px; color: var(--淡字); flex: 1; min-width: 0; }
+.仓顶栏右 { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+.仓提示 {
+  margin: 0;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--淡字);
+  min-height: 24px;
+  flex-shrink: 0;
+}
+.仓提示.坏 { color: #e05252; }
+.仓提示.好 { color: #2a9d5c; }
+
+.仓体 { flex: 1; display: flex; min-height: 0; }
+
+.仓左 {
+  width: 300px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--线);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.仓搜索 {
+  margin: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--线);
+  border-radius: 6px;
+  background: var(--底);
+  color: var(--字);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.仓搜索:focus { outline: none; border-color: var(--主); }
+
+.仓文件表 { flex: 1; overflow-y: auto; margin: 0; padding: 0 0 8px; list-style: none; }
+.仓文件项 {
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* 路径长，从左边截断更有用：尾部的文件名才是要看的 */
+  direction: rtl;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.仓文件项:hover { background: rgba(0, 0, 0, .05); }
+.仓文件项.选中 { background: rgba(0, 0, 0, .09); color: var(--主); }
+/* 路径本身要按正常方向念，只有容器是 rtl */
+.仓文件项 .仓路径 { direction: ltr; unicode-bidi: bidi-override; }
+.仓文件项 .仓标记 { direction: ltr; font-size: 11px; flex-shrink: 0; }
+.仓文件项 .仓标记.改 { color: #d98324; }
+.仓文件项 .仓标记.新 { color: #2a9d5c; }
+
+.仓右 { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.仓空态 { color: var(--淡字); text-align: center; padding-top: 60px; }
+
+.仓文件头 {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--线);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.仓文件头 .仓文件路径 {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.仓文件头 .仓元信息 { color: var(--淡字); flex-shrink: 0; }
+
+.仓编辑 {
+  flex: 1;
+  border: 0;
+  resize: none;
+  padding: 12px 14px;
+  background: var(--底);
+  color: var(--字);
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 4;
+  min-height: 0;
+}
+.仓编辑:focus { outline: none; }
+/* 二进制文件不给编辑，只说明情况 */
+.仓不可编辑 { padding: 20px 14px; color: var(--淡字); font-size: 13px; }
+/* ---------- 弹层 ---------- */
+.遮罩 {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 20, 30, .45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 50;
+}
+.面板 {
+  width: 100%;
+  max-width: 520px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--面);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .22);
+  overflow: hidden;
+}
+.窄面板 { max-width: 360px; }
+.面板头 {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--线);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+.面板体 { padding: 16px; overflow-y: auto; }
+.面板脚 {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+}
+/* ---------- 表单 ---------- */
+.表单行 { margin-bottom: 12px; }
+.表单行 > label {
+  display: block;
+  font-size: 13px;
+  color: var(--淡字);
+  margin-bottom: 4px;
+}
+.表单行.两列 {
+  display: flex;
+  gap: 10px;
+}
+.表单行.两列 > div { flex: 1; }
+.表单行.两列 > .窄 { flex: 0 0 88px; }
+.表单行 textarea.输入框 { resize: vertical; font-family: ui-monospace, Consolas, monospace; }
+.小字 { font-size: 12px; color: var(--淡字); margin-top: 4px; line-height: 1.5; }
+/* ---------- 主机列表 ---------- */
+.主机列表 { list-style: none; margin-bottom: 12px; }
+.主机项 {
+  border: 1px solid var(--线);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.主机行1 { display: flex; align-items: center; gap: 8px; }
+.主机名 { font-weight: 600; }
+.主机址 { font-size: 12px; color: var(--淡字); }
+.主机操作 { margin-left: auto; display: flex; gap: 6px; }
+.主机状态 { font-size: 12px; color: var(--淡字); margin-top: 6px; word-break: break-all; }
+.主机状态.好 { color: #15803d; }
+.主机状态.坏 { color: var(--危险); }
+/* ---------- 音量滑块 ---------- */
+.滑块 { width: 100%; accent-color: var(--主); cursor: pointer; }
+.滑块:focus-visible { outline: 2px solid var(--主); outline-offset: 2px; }
+/* ---------- 回看需求时的闪一下 ---------- */
+.消息.高亮 .气泡 {
+  outline: 2px solid var(--主);
+  outline-offset: 2px;
+  transition: outline-color .3s ease;
+}
+/* ---------- 充值面板 ---------- */
+/* 余额从 span 改成了 button，得把浏览器默认按钮样式清掉，
+   再补上可点的暗示，否则用户不知道这儿能点。 */
+.余额 {
+  background: none;
+  border: 0;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  color: var(--淡字);
+}
+/* 侧栏脚是 flex，余额默认会被两个按钮挤压到只剩几位数字。
+   给它留出空间，宽度不够时用省略号而不是硬截断。 */
+.余额 {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.余额:hover { background: var(--底); color: var(--主); }
+.余额:focus-visible { outline: 2px solid var(--主); outline-offset: 1px; }
+.支付余额 {
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--淡字);
+}
+.支付余额 b { color: var(--字); font-size: 16px; }
+/* 面额按钮：两列自适应，选中态用主色描边 */
+.面额组 {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.面额钮 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 6px;
+  border: 1px solid var(--线);
+  border-radius: 8px;
+  background: var(--面);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color .15s, background .15s;
+}
+.面额钮:hover { border-color: var(--主); }
+.面额钮.选中 {
+  border-color: var(--主);
+  background: var(--我的气泡);
+}
+.面额值 { font-size: 15px; font-weight: 600; color: var(--字); }
+.面额付 { font-size: 11px; color: var(--淡字); }
+.面额折 { font-size: 11px; color: var(--主); }
+.面额钮 .面额付:empty { display: none; }
+/* 二维码区 */
+.码区 {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--线);
+  border-radius: 8px;
+  text-align: center;
+  background: var(--底);
+}
+.支付码 {
+  width: 180px;
+  height: 180px;
+  display: block;
+  margin: 0 auto 8px;
+  background: #fff;
+}
+.码说明 { font-size: 12px; color: var(--淡字); }
+.码状态 { margin-top: 6px; font-size: 12px; color: var(--主); }
+.支付提示 {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--我的气泡);
+  color: var(--主深);
+}
+.支付提示.错 {
+  background: #fef2f2;
+  color: var(--危险);
+}
+/* ---------- 图片上传入口 ----------
+   原来这几个类没有任何样式，用的是 button 默认外观（灰底方角），
+   在这套浅色界面里很突兀。改成圆形图标钮，跟 .图钮 同一套配色。 */
+.加图按钮 {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--淡字);
+  background: var(--面);
+  border: 1px solid var(--线);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.加图按钮:hover {
+  color: var(--主);
+  border-color: var(--主);
+  background: var(--我的气泡);
+}
+.加图按钮:active { transform: scale(.94); }
+.加图按钮:focus-visible { outline: 2px solid var(--主); outline-offset: 2px; }
+/* 待发图预览条：整行独占，排在输入框上方 */
+.待发图区 {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0 2px;
+}
+.待发图 {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  border: 1px solid var(--线);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--底);
+}
+.待发图 img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* 删除角标：默认半透明，悬停到缩略图上才实体化 */
+.待发图 button {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(15, 20, 30, .55);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s, background .15s;
+}
+.待发图:hover button { opacity: 1; }
+.待发图 button:hover { background: var(--危险); }
+.待发图 button:focus-visible { opacity: 1; outline: 2px solid #fff; }
+/* 勾选项下面的补充说明，小字淡色，缩进对齐复选框后的文字 */
+.面板注 {
+  margin: -4px 0 8px 22px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--淡字);
+}
+
+/* ===== 以下为从网页端 chat.css 移植的卡片样式 ===== */
+.ssh-card {
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  margin: 10px 0;
+  background: var(--c-panel);
+  overflow: hidden;
+}
+.ssh-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--c-primary-soft);
+  border-bottom: 1px solid var(--c-border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+.ssh-ico { color: var(--c-primary); }
+.ssh-cmd {
+  margin: 0;
+  padding: 12px;
+  background: transparent;
+  border: 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.ssh-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--c-border-soft);
+  flex-wrap: wrap;
+}
+.ssh-state { font-size: 12px; color: var(--c-text-2); }
+.ssh-state.good { color: #15803d; }
+.ssh-state.bad  { color: #b91c1c; }
+.ssh-state.warn { color: #b45309; }
+.ssh-state.dim  { color: var(--c-muted); }
+.ssh-btns { display: flex; gap: 8px; }
+.ssh-out {
+  margin: 0;
+  padding: 12px;
+  border-top: 1px solid var(--c-border-soft);
+  background: var(--c-bg);
+  font-size: 12px;
+  max-height: 340px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.ssh-card.ssh-denied { border-color: #dc2626; }
+.ssh-card.ssh-denied .ssh-card-head { background: #fef2f2; color: #b91c1c; }
+.btn-sm { padding: 4px 12px; font-size: 12px; }
+
+/* ---------- 工具调用卡片（tool_result 事件） ----------
+   后端执行完 Function Calling 工具后通过 SSE 推送，和正文代码块渲染的
+   ssh/repo 卡片是两套通道。样式沿用 ssh-card 的骨架，用 var(--c-*) 跟随主题。 */
+.tool-card {
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  margin: 6px 0 10px;
+  background: var(--c-panel);
+  overflow: hidden;
+  font-size: 13px;
+}
+.tool-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--c-primary-soft);
+  border-bottom: 1px solid var(--c-border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text);
+  cursor: pointer;
+  user-select: none;
+}
+.tool-call-ico { color: var(--c-primary); transition: transform .15s; }
+.tool-card[open] .tool-call-ico { transform: rotate(90deg); }
+.tool-card-title { flex: 1; min-width: 0; word-break: break-all; }
+.tool-card-state { font-size: 12px; font-weight: 400; color: var(--c-muted); }
+.tool-card-state.good { color: #15803d; }
+.tool-card-body { border-top: 0; }
+.tool-card-label {
+  padding: 8px 12px 0;
+  font-size: 12px;
+  color: var(--c-muted);
+}
+.tool-card-args, .tool-card-out {
+  margin: 4px 12px 10px;
+  padding: 10px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border-soft);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 340px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+
+/* ---------- 文件操作卡片（对话页） ----------
+   AI 用 file-* / ws-* 代码块提出的文件动作，渲染成卡片。
+   file-* 作用于客户代码副本，ws-* 作用于账号自己的文件库，
+   两者共用这套外观，只有图标和标题不同，用户一眼能分清但不用学两套。 */
+.repo-card {
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--c-primary);
+  border-radius: var(--radius);
+  background: #fcfcfd;
+  margin: 10px 0;
+  overflow: hidden;
+  font-size: 13px;
+}
+.repo-card.pend { border-left-color: var(--c-border); opacity: .8; }
+.repo-card.ws-card-op { border-left-color: #7c5cff; }
+/* SFTP 直连卡片：动作直接落客户线上服务器，用醒目的橙色区别于本地副本操作 */
+.repo-card.sftp-card-op { border-left-color: #f08c2e; }
+.repo-card.local-card-op { border-left-color: #28a745; }
+/* 网页抓取卡片：只取信息不改东西，用偏冷的青色和上面几类改动型操作区分开 */
+.repo-card.web-card-op { border-left-color: #17a2b8; }
+.web-state { margin-left: auto; flex: none; font-size: 12px; color: var(--c-muted); }
+.web-state.run { color: #17a2b8; }
+.web-state.ok  { color: var(--c-ok, #2ea043); }
+.web-state.bad { color: var(--c-bad, #e5534b); }
+.web-body { padding: 8px 11px; border-top: 1px solid var(--c-border-soft); }
+.web-ptitle { font-weight: 500; margin-bottom: 4px; word-break: break-word; }
+.web-note { color: var(--c-muted); font-size: 12px; margin-bottom: 4px; }
+.web-excerpt {
+  color: var(--c-muted); font-size: 12px; line-height: 1.55;
+  word-break: break-word;
+}
+.web-err { color: var(--c-bad, #e5534b); font-size: 12px; word-break: break-word; }
+
+.repo-card-head {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 11px; border-bottom: 1px solid var(--c-border-soft);
+}
+.repo-ico { font-size: 13px; flex-shrink: 0; }
+.repo-title { font-weight: 500; color: var(--c-text); }
+
+.repo-path {
+  padding: 8px 11px 4px; word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px; color: var(--c-text);
+}
+.repo-dim { color: var(--c-muted); font-size: 11.5px; font-family: inherit; }
+.repo-note { padding: 2px 11px 8px; color: var(--c-text-2); font-size: 12.5px; }
+
+.repo-card-foot {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 11px; border-top: 1px solid var(--c-border-soft);
+  background: #fff;
+}
+/* ---- PPT 卡片 ---- */
+/* 大纲概览：每行一页，序号 + 标题 + 要点数 */
+.ppt-outline { padding: 2px 11px 8px; }
+.ppt-li {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 3px 0; font-size: 12.5px; color: var(--c-text-2);
+  border-bottom: 1px dashed var(--c-border);
+}
+.ppt-li:last-child { border-bottom: 0; }
+.ppt-no {
+  flex: none; min-width: 18px; height: 18px; line-height: 18px;
+  text-align: center; font-size: 11px; border-radius: 4px;
+  background: var(--c-bg); color: var(--c-muted);
+}
+/* 标题占满剩余宽度，过长省略而不是把要点数挤出去 */
+.ppt-t { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ppt-more { color: var(--c-muted); font-size: 12px; border-bottom: 0; }
+/* 下载按钮：卡片底部靠右，做成实心主色，是这张卡片的主操作 */
+.ppt-dl {
+  margin-left: auto; padding: 4px 12px; border-radius: 6px;
+  background: var(--c-primary); color: #fff; font-size: 12px;
+  text-decoration: none; line-height: 1.6;
+}
+.ppt-dl:hover { opacity: .88; text-decoration: none; }
+
+.repo-state { font-size: 12px; color: var(--c-muted); }
+.repo-state.good { color: var(--c-ok); }
+.repo-state.bad  { color: var(--c-err); }
+.repo-state.warn { color: var(--c-warn); }
+.repo-state.dim  { color: var(--c-muted); }
+.repo-btns { margin-left: auto; display: flex; gap: 6px; }
+
+.repo-out {
+  margin: 0; padding: 9px 11px; max-height: 260px; overflow: auto;
+  border-top: 1px solid var(--c-border-soft); background: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; line-height: 1.65; white-space: pre-wrap; word-break: break-all;
+  color: var(--c-text-2);
+}
+.repo-out[hidden] { display: none; }
+.repo-out:focus-visible { outline: 2px solid var(--c-primary); outline-offset: -2px; }
+
+/* 卡片里的补丁预览：整行着色，行首 +/- 已由 JS 写进文本 */
+.repo-card .repo-diff { max-height: 280px; padding: 8px 11px; }
+.repo-card .repo-diff .dl-del { display: block; background: #fdeeee; color: #a33; }
+.repo-card .repo-diff .dl-add { display: block; background: #eafaf5; color: #197; }

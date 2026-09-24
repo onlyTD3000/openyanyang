@@ -1,0 +1,1149 @@
+package cn.bot77.yanyang.ui
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import cn.bot77.yanyang.media.提示音
+import cn.bot77.yanyang.media.声设置
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import android.net.Uri
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import cn.bot77.yanyang.data.会话
+import cn.bot77.yanyang.data.项目
+import cn.bot77.yanyang.data.模型项
+import cn.bot77.yanyang.net.版本检查
+import cn.bot77.yanyang.net.版本信息
+import cn.bot77.yanyang.BuildConfig
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Info
+import androidx.core.content.ContextCompat
+import android.content.Intent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import cn.bot77.yanyang.net.更新下载
+import cn.bot77.yanyang.net.下载进度
+/**
+ * 对话主页。
+ *
+ * 侧栏走 ModalNavigationDrawer，手机屏幕窄，常驻侧栏挤得没法看。
+ * 消息列表用 LazyColumn，流式输出时自动跟到底部。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun 对话页(状态: 主状态) {
+    val 抽屉 = rememberDrawerState(DrawerValue.Closed)
+    val 协程 = rememberCoroutineScope()
+    // 抽屉开着时返回键先收抽屉，这是用户最直觉的一步。
+    // 抽屉已关就不拦，交给系统退出应用——对话页是根页面，没有上一页。
+    BackHandler(enabled = 抽屉.isOpen) {
+        协程.launch { 抽屉.close() }
+    }
+    ModalNavigationDrawer(
+        drawerState = 抽屉,
+        drawerContent = {
+            ModalDrawerSheet(Modifier.width(300.dp)) {
+                侧栏(状态) { 协程.launch { 抽屉.close() } }
+            }
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                状态.当前会话.value?.标题 ?: "岩羊Ai",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            if (状态.我的.value.余额.isNotBlank()) {
+                                Text(
+                                    "余额 ${状态.我的.value.余额}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.clickable { 状态.开充值页() }
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { 协程.launch { 抽屉.open() } }) {
+                            Icon(Icons.Filled.Menu, "打开侧栏")
+                        }
+                    },
+                    actions = {
+                        模型选择器(状态)
+                        提示音按钮(状态)
+                    }
+                )
+            },
+            bottomBar = { 输入栏(状态) }
+        ) { 内边距 ->
+            Box(Modifier.padding(内边距).fillMaxSize()) {
+                消息列表(状态)
+                if (状态.加载中.value && 状态.消息表.isEmpty()) {
+                    CircularProgressIndicator(Modifier.align(Alignment.Center))
+                }
+            }
+        }
+    }
+    // 提示统一用 Snackbar 弹，弹完清掉，避免切屏后重复弹
+    状态.提示.value.takeIf { it.isNotBlank() }?.let { 文 ->
+        val 宿主 = remember { SnackbarHostState() }
+        SnackbarHost(宿主, Modifier.fillMaxWidth())
+        LaunchedEffect(文) {
+            宿主.showSnackbar(文)
+            状态.清提示()
+        }
+    }
+}
+@Composable
+private fun 消息列表(状态: 主状态) {
+    val 列表态 = rememberLazyListState()
+    val 协程域 = rememberCoroutineScope()
+    // 是否跟随底部。true 时新内容会自动滚到底，false 时停在用户看的位置。
+    // 初始为 true：刚进对话应该看到最新消息。
+    var 跟随底部 by remember { mutableStateOf(true) }
+    // 判断当前视口是不是已经贴着底部。
+    // 允许 200 像素误差：流式输出时内容一直在长，严格判等永远不成立。
+    val 在底部附近 by remember {
+        derivedStateOf {
+            val 布局 = 列表态.layoutInfo
+            val 末项 = 布局.visibleItemsInfo.lastOrNull()
+            if (末项 == null) {
+                true                      // 列表还空着，当作在底部
+            } else {
+                末项.index >= 布局.totalItemsCount - 1 &&
+                    末项.offset + 末项.size <= 布局.viewportEndOffset + 200
+            }
+        }
+    }
+    // 滚动结束后按落点重新决定跟不跟。
+    // 注意必须在结束时判定：手指刚按下还没移动时视口仍在底部，
+    // 那一刻取值会误判成「要跟随」，用户上翻立刻又被拽回去。
+    LaunchedEffect(列表态.isScrollInProgress) {
+        if (!列表态.isScrollInProgress) {
+            跟随底部 = 在底部附近
+        }
+    }
+    // 自己刚发出的消息一定要看见，无条件恢复跟随。
+    LaunchedEffect(状态.消息表.size) {
+        if (状态.消息表.lastOrNull()?.是用户 == true) {
+            跟随底部 = true
+        }
+    }
+    // 切换对话或首次进入时自动跳到底部
+    LaunchedEffect(状态.当前会话.value?.id) {
+        if (状态.消息表.isNotEmpty()) {
+            列表态.scrollToItem(状态.消息表.lastIndex, Int.MAX_VALUE / 2)
+            跟随底部 = true
+        }
+    }
+    // 内容增长时的跟随。用 scrollToItem 不带动画：
+    // 流式输出触发很密，动画会互相打断，那正是「弹上去」的来源。
+    // 滚到 lastIndex 再补一个大的 offset，落在这条消息的末尾而不是开头，
+    // 否则单条回复超过一屏时会停在消息顶部，看不到最新的字。
+    LaunchedEffect(状态.消息表.size, 状态.消息表.lastOrNull()?.正文?.length) {
+        if (状态.消息表.isNotEmpty() && 跟随底部) {
+            列表态.scrollToItem(状态.消息表.lastIndex, Int.MAX_VALUE / 2)
+        }
+    }
+    
+    // 跳转到指定的用户消息（上一条需求按钮触发）
+    LaunchedEffect(状态.上一条用户消息索引.value) {
+        val 目标索引 = 状态.上一条用户消息索引.value
+        if (目标索引 >= 0 && 目标索引 < 状态.消息表.size) {
+            列表态.animateScrollToItem(目标索引)
+            跟随底部 = false  // 跳转后停止自动跟随，让用户查看历史消息
+        }
+    }
+    if (状态.消息表.isEmpty() && !状态.加载中.value) {
+        空态(状态)
+        return
+    }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = 列表态,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = 8.dp)
+        ) {
+            items(
+                count = 状态.消息表.size,
+                key = { i -> 状态.消息表[i].序号 }
+            ) { i ->
+                消息条(状态.消息表[i])
+            }
+        }
+        // 右下角悬浮按钮：不在底部时显示，点击快速回到底部
+        if (!在底部附近 && 状态.消息表.isNotEmpty()) {
+            FloatingActionButton(
+                onClick = {
+                    协程域.launch {
+                        列表态.scrollToItem(状态.消息表.lastIndex, Int.MAX_VALUE / 2)
+                        跟随底部 = true
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "回到底部")
+            }
+        }
+    }
+}
+/**
+ * 没有消息时的空态。
+ *
+ * 分两种情况：还没选对话时提示先去侧栏选一个（这时候发不出消息，
+ * 输入栏那边也会禁掉发送），已经选了就只是一条还没开口的新对话。
+ * 后台配了站点公告就一并显示，内容跟网页端聊天页空态是同一份。
+ */
+@Composable
+private fun 空态(状态: 主状态) {
+    val 有会话 = 状态.当前会话.value != null
+    val 公告 = 状态.我的.value.公告.trim()
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            if (有会话) "开始新的对话" else "先选一条对话",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            if (有会话) "在下面输入你的问题，按发送。"
+            else "点左上角菜单，在项目下选一条对话或新建一条，之后才能发消息。",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        if (公告.isNotBlank()) {
+            Spacer(Modifier.height(24.dp))
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "站点公告",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        公告,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+        }
+    }
+}
+@Composable
+private fun 输入栏(状态: 主状态) {
+    var 草稿 by remember { mutableStateOf("") }
+    val 上下文 = LocalContext.current
+    // 超过后台设定的体积上限时，先问用户要不要压。
+    // 存 uri 和原始 KB 数：前者压缩要用，后者是弹窗文案里那个数字。
+    var 待确认图 by remember { mutableStateOf<Pair<android.net.Uri, Int>?>(null) }
+    val 上限KB = 状态.我的.value.图片上限KB
+    // 系统相册选择器。PickVisualMedia 由系统进程选图后授临时读权限，
+    // 不用申请 READ_MEDIA_IMAGES，省一个运行时权限弹窗。
+    val 选图 = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            val 超出KB = 需要确认压缩(上下文, uri, 上限KB)
+            if (超出KB > 0) 待确认图 = uri to 超出KB
+            else 压缩并上传(上下文, uri, 状态, 上限KB)
+        }
+    }
+    待确认图?.let { (待压uri, 原始KB) ->
+        AlertDialog(
+            onDismissRequest = { 待确认图 = null },
+            title = { Text("图片超过上限") },
+            text = {
+                Text(
+                    "这张图 ${原始KB}KB，超过上限 ${上限KB}KB。\n" +
+                        "压缩会降低画质,图上的文字可能变模糊。要继续吗？"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    待确认图 = null
+                    压缩并上传(上下文, 待压uri, 状态, 上限KB)
+                }) {
+                    Text("压缩并发送")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { 待确认图 = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+    var 展开工具弹窗 by remember { mutableStateOf(false) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        // 已上传的图片预览（显示在输入框上方）
+        if (状态.待发图片.isNotEmpty()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                状态.待发图片.forEach { 图项 ->
+                    Box {
+                        // 异步加载图片
+                        val 位图 = remember(图项.本地uri) {
+                            mutableStateOf<android.graphics.Bitmap?>(null)
+                        }
+                        LaunchedEffect(图项.本地uri) {
+                            withContext(Dispatchers.IO) {
+                                try {
+                                    val uri = Uri.parse(图项.本地uri)
+                                    val inputStream = 上下文.contentResolver.openInputStream(uri)
+                                    位图.value = android.graphics.BitmapFactory.decodeStream(inputStream)
+                                    inputStream?.close()
+                                } catch (_: Exception) {
+                                    // 加载失败就不显示
+                                }
+                            }
+                        }
+                        位图.value?.let { bmp ->
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "已上传图片",
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        // 删除按钮
+                        IconButton(
+                            onClick = { 状态.删图(图项.id) },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .size(24.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                    RoundedCornerShape(12.dp)
+                                )
+                        ) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "删除",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 图片按钮
+            IconButton(
+                onClick = {
+                    if (状态.待发图片.size >= 4) {
+                        状态.提示.value = "一次最多上传 4 张图"
+                    } else {
+                        选图.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }
+                },
+                enabled = 状态.待发图片.size < 4
+            ) {
+                Icon(Icons.Filled.Image, "上传图片")
+            }
+            // 输入框
+            OutlinedTextField(
+                value = 草稿,
+                onValueChange = { 草稿 = it },
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 4.dp),
+                placeholder = { Text("输入消息") },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.Send
+                ),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                    onSend = {
+                        if (草稿.isNotBlank() && 状态.当前会话.value != null) {
+                            状态.发送(草稿.trim())
+                            草稿 = ""
+                        }
+                    }
+                ),
+                maxLines = 4,
+                shape = RoundedCornerShape(20.dp)
+            )
+            // 发送/停止按钮
+            IconButton(
+                onClick = {
+                    if (状态.在生成.value) {
+                        状态.停生成()
+                    } else {
+                        if (草稿.isNotBlank() && 状态.当前会话.value != null) {
+                            状态.发送(草稿.trim())
+                            草稿 = ""
+                        }
+                    }
+                },
+                enabled = 状态.当前会话.value != null && (草稿.isNotBlank() || 状态.在生成.value)
+            ) {
+                Icon(
+                    if (状态.在生成.value) Icons.Filled.Stop else Icons.Filled.Send,
+                    if (状态.在生成.value) "停止" else "发送"
+                )
+            }
+        }
+        // 工具按钮
+        OutlinedButton(
+            onClick = { 展开工具弹窗 = true },
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Text("⚙ 工具", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    
+    // 工具弹窗
+    if (展开工具弹窗) {
+        工具弹窗(
+            状态 = 状态,
+            关闭 = { 展开工具弹窗 = false }
+        )
+    }
+}
+
+/**
+ * 工具开关弹窗
+ */
+@Composable
+fun 工具弹窗(状态: 主状态, 关闭: () -> Unit) {
+    val 我的 = 状态.我的.value
+    var 正在保存 by remember { mutableStateOf(false) }
+    val 协程 = rememberCoroutineScope()
+    
+    // 15个工具开关状态
+    var sshExec by remember(我的.id) { mutableStateOf(我的.tool_ssh_exec == 1) }
+    var sftpRead by remember(我的.id) { mutableStateOf(我的.tool_sftp_read == 1) }
+    var sftpWrite by remember(我的.id) { mutableStateOf(我的.tool_sftp_write == 1) }
+    var sftpList by remember(我的.id) { mutableStateOf(我的.tool_sftp_list == 1) }
+    var sftpDelete by remember(我的.id) { mutableStateOf(我的.tool_sftp_delete == 1) }
+    var fileList by remember(我的.id) { mutableStateOf(我的.tool_file_list == 1) }
+    var fileRead by remember(我的.id) { mutableStateOf(我的.tool_file_read == 1) }
+    var fileWrite by remember(我的.id) { mutableStateOf(我的.tool_file_write == 1) }
+    var filePush by remember(我的.id) { mutableStateOf(我的.tool_file_push == 1) }
+    var wsList by remember(我的.id) { mutableStateOf(我的.tool_ws_list == 1) }
+    var wsRead by remember(我的.id) { mutableStateOf(我的.tool_ws_read == 1) }
+    var wsWrite by remember(我的.id) { mutableStateOf(我的.tool_ws_write == 1) }
+    var webOpen by remember(我的.id) { mutableStateOf(我的.tool_web_open == 1) }
+    var webSearch by remember(我的.id) { mutableStateOf(我的.tool_web_search == 1) }
+    var pptGen by remember(我的.id) { mutableStateOf(我的.tool_ppt_generate == 1) }
+    
+    AlertDialog(
+        onDismissRequest = { if (!正在保存) 关闭() },
+        title = { Text("工具开关") },
+        text = {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // SSH / SFTP 组
+                Text("SSH / SFTP", style = MaterialTheme.typography.titleSmall)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    工具开关行("执行命令", sshExec, Modifier.weight(1f)) { sshExec = it }
+                    工具开关行("读文件", sftpRead, Modifier.weight(1f)) { sftpRead = it }
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    工具开关行("写文件", sftpWrite, Modifier.weight(1f)) { sftpWrite = it }
+                    工具开关行("列目录", sftpList, Modifier.weight(1f)) { sftpList = it }
+                }
+                工具开关行("删文件", sftpDelete, Modifier.fillMaxWidth()) { sftpDelete = it }
+                
+                HorizontalDivider()
+                
+                // 代码仓组
+                Text("代码仓", style = MaterialTheme.typography.titleSmall)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    工具开关行("列文件", fileList, Modifier.weight(1f)) { fileList = it }
+                    工具开关行("读文件", fileRead, Modifier.weight(1f)) { fileRead = it }
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    工具开关行("写文件", fileWrite, Modifier.weight(1f)) { fileWrite = it }
+                    工具开关行("推送", filePush, Modifier.weight(1f)) { filePush = it }
+                }
+                
+                HorizontalDivider()
+                
+                // 工作中心组
+                Text("工作中心", style = MaterialTheme.typography.titleSmall)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    工具开关行("列文件", wsList, Modifier.weight(1f)) { wsList = it }
+                    工具开关行("读文件", wsRead, Modifier.weight(1f)) { wsRead = it }
+                }
+                工具开关行("写文件", wsWrite, Modifier.fillMaxWidth()) { wsWrite = it }
+                
+                HorizontalDivider()
+                
+                // 其他组
+                Text("其他", style = MaterialTheme.typography.titleSmall)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    工具开关行("抓网页", webOpen, Modifier.weight(1f)) { webOpen = it }
+                    工具开关行("实时搜索", webSearch, Modifier.weight(1f)) { webSearch = it }
+                }
+                工具开关行("生成PPT", pptGen, Modifier.fillMaxWidth()) { pptGen = it }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    正在保存 = true
+                    协程.launch {
+                        try {
+                            val 配置 = mapOf(
+                                "tool_ssh_exec" to if (sshExec) 1 else 0,
+                                "tool_sftp_read" to if (sftpRead) 1 else 0,
+                                "tool_sftp_write" to if (sftpWrite) 1 else 0,
+                                "tool_sftp_list" to if (sftpList) 1 else 0,
+                                "tool_sftp_delete" to if (sftpDelete) 1 else 0,
+                                "tool_file_list" to if (fileList) 1 else 0,
+                                "tool_file_read" to if (fileRead) 1 else 0,
+                                "tool_file_write" to if (fileWrite) 1 else 0,
+                                "tool_file_push" to if (filePush) 1 else 0,
+                                "tool_ws_list" to if (wsList) 1 else 0,
+                                "tool_ws_read" to if (wsRead) 1 else 0,
+                                "tool_ws_write" to if (wsWrite) 1 else 0,
+                                "tool_web_open" to if (webOpen) 1 else 0,
+                                "tool_web_search" to if (webSearch) 1 else 0,
+                                "tool_ppt_generate" to if (pptGen) 1 else 0
+                            )
+                            状态.仓.保存工具开关(配置).getOrThrow()
+                            // 刷新用户信息
+                            状态.刷我的()
+                            关闭()
+                        } catch (e: Exception) {
+                            状态.提示.value = "保存失败：${e.message}"
+                        } finally {
+                            正在保存 = false
+                        }
+                    }
+                },
+                enabled = !正在保存
+            ) {
+                Text(if (正在保存) "保存中..." else "保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = 关闭, enabled = !正在保存) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+/**
+ * 单个工具开关行（支持自定义 Modifier 以适配两列布局）
+ */
+@Composable
+fun 工具开关行(标签: String, 选中: Boolean, modifier: Modifier = Modifier, 变更: (Boolean) -> Unit) {
+    Row(
+        modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(checked = 选中, onCheckedChange = 变更)
+        Text(
+            标签,
+            modifier = Modifier.padding(start = 8.dp),
+            style = MaterialTheme.typography.bodyMedium
+        )
+    }
+}
+
+/**
+ * 模型选择器（右上角下拉菜单）
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun 模型选择器(状态: 主状态) {
+    var 展开 by remember { mutableStateOf(false) }
+    
+    // 获取当前选中的模型对象
+    val 当前模型对象 = 状态.模型表.find { it.标识 == 状态.当前模型.value }
+    
+    ExposedDropdownMenuBox(
+        expanded = 展开,
+        onExpandedChange = { 展开 = it }
+    ) {
+        // 按钮只展示当前选中的模型名称
+        OutlinedButton(
+            onClick = { 展开 = true },
+            modifier = Modifier.menuAnchor(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Text(
+                当前模型对象?.名称 ?: "模型",
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Icon(
+                Icons.Filled.ArrowDropDown,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        ExposedDropdownMenu(
+            expanded = 展开,
+            onDismissRequest = { 展开 = false }
+        ) {
+            状态.模型表.forEach { 模型 ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(
+                                模型.名称,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (模型.标识 == 状态.当前模型.value)
+                                    FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    },
+                    onClick = {
+                        状态.当前模型.value = 模型.标识
+                        展开 = false
+                    },
+                    leadingIcon = if (模型.标识 == 状态.当前模型.value) {
+                        { Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(20.dp)) }
+                    } else null
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 提示音开关按钮
+ */
+@Composable
+private fun 提示音按钮(状态: 主状态) {
+    val 上下文 = LocalContext.current
+    val 用户id = 状态.我的.value.id.toString()
+    val 当前开关 = 声设置.开着(上下文, 用户id)
+    IconButton(onClick = {
+        声设置.设开关(上下文, 用户id, !当前开关)
+        // 重新触发组合读取最新值
+        状态.当前会话.value = 状态.当前会话.value
+    }) {
+        Icon(
+            if (当前开关) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
+            contentDescription = if (当前开关) "关闭提示音" else "开启提示音",
+            tint = if (当前开关)
+                MaterialTheme.colorScheme.primary
+            else
+                MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/**
+ * 检查图片是否超出上限，返回 0 表示未超出，>0 表示超出的实际 KB 数
+ */
+private fun 需要确认压缩(上下文: android.content.Context, uri: android.net.Uri, 上限KB: Int): Int {
+    return try {
+        上下文.contentResolver.openInputStream(uri)?.use { 流 ->
+            val 字节数 = 流.available()
+            val 实际KB = 字节数 / 1024
+            if (实际KB > 上限KB) 实际KB else 0
+        } ?: 0
+    } catch (_: Exception) {
+        0
+    }
+}
+
+/**
+ * 压缩并上传图片
+ */
+private fun 压缩并上传(
+    上下文: android.content.Context,
+    uri: android.net.Uri,
+    状态: 主状态,
+    上限KB: Int
+) {
+    try {
+        val 原图 = 上下文.contentResolver.openInputStream(uri)?.use {
+            android.graphics.BitmapFactory.decodeStream(it)
+        } ?: run {
+            状态.提示.value = "读取图片失败"
+            return
+        }
+        
+        // 分级压缩：先尝试 80 质量，不行就 60，还不行就 40，实在不行就放弃
+        var 质量 = 80
+        var 压缩结果: ByteArray? = null
+        while (质量 >= 40) {
+            val 输出流 = java.io.ByteArrayOutputStream()
+            原图.compress(android.graphics.Bitmap.CompressFormat.JPEG, 质量, 输出流)
+            val 字节 = 输出流.toByteArray()
+            if (字节.size / 1024 <= 上限KB) {
+                压缩结果 = 字节
+                break
+            }
+            质量 -= 20
+        }
+        
+        if (压缩结果 == null) {
+            状态.提示.value = "压缩后仍超过上限，请换一张图"
+            return
+        }
+        
+        // 转 base64 并上传
+        val base64 = android.util.Base64.encodeToString(
+            压缩结果,
+            android.util.Base64.NO_WRAP
+        )
+        状态.加图(压缩结果, "${System.currentTimeMillis()}.jpg", "image/jpeg", uri.toString())
+    } catch (e: Exception) {
+        状态.提示.value = "处理图片失败：${e.message}"
+    }
+}
+
+/**
+ * 侧栏：项目列表 + 对话管理
+ *
+ * 逻辑：用户可以有多个项目，每个项目下有多条对话。
+ * 侧栏顶部显示项目列表（可切换、新建、删除），下面展示当前项目下的对话列表。
+ * 对话可以新建、删除、重命名，点击对话切换到那条去。
+ */
+@Composable
+private fun 侧栏(状态: 主状态, 关抽屉: () -> Unit) {
+    var 展开项目选择 by remember { mutableStateOf(false) }
+    var 新建项目弹窗 by remember { mutableStateOf(false) }
+    var 重命名项目弹窗 by remember { mutableStateOf(false) }
+    var 删项目确认 by remember { mutableStateOf(false) }
+    var 新建对话弹窗 by remember { mutableStateOf(false) }
+    var 重命名对话弹窗 by remember { mutableStateOf<会话?>(null) }
+    var 删对话确认 by remember { mutableStateOf<会话?>(null) }
+    Column(Modifier.fillMaxSize()) {
+        // 顶部：当前项目名 + 下拉按钮
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { 展开项目选择 = !展开项目选择 }
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                状态.当前会话.value?.项目id?.let { pid -> 状态.项目表.find { it.id == pid }?.名称 } ?: "未选项目",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                if (展开项目选择) Icons.Filled.KeyboardArrowDown else Icons.Filled.ArrowDropDown,
+                contentDescription = null
+            )
+        }
+        // 项目列表展开区
+        if (展开项目选择) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(vertical = 8.dp)
+            ) {
+                状态.项目表.forEach { 项目 ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                // 切换到该项目下的第一个会话
+                                val 第一会话 = 状态.项目下会话(项目.id).firstOrNull()
+                                if (第一会话 != null) {
+                                    状态.选会话(第一会话)
+                                }
+                                展开项目选择 = false
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            项目.名称,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                            fontWeight = if (项目.id == 状态.当前会话.value?.项目id)
+                                FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                TextButton(
+                    onClick = {
+                        新建项目弹窗 = true
+                        展开项目选择 = false
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("新建项目")
+                }
+            }
+        }
+        HorizontalDivider()
+        // 当前项目操作按钮
+        if (状态.当前项目.value != null) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                TextButton(onClick = { 重命名项目弹窗 = true }) {
+                    Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("改名", style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = { 删项目确认 = true }) {
+                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("删除", style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = {
+                    新建对话弹窗 = true
+                }) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("新对话", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            HorizontalDivider()
+        }
+        // 对话列表
+        if (状态.对话列表.isEmpty()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "还没有对话\n点右上角新建一条",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            LazyColumn(Modifier.weight(1f)) {
+                items(状态.对话列表, key = { it.id }) { 会话 ->
+                    val 是当前 = 会话.id == 状态.当前会话.value?.id
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                状态.切换会话(会话)
+                                关抽屉()
+                            }
+                            .background(
+                                if (是当前) MaterialTheme.colorScheme.secondaryContainer
+                                else Color.Transparent
+                            )
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            会话.标题,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontWeight = if (是当前) FontWeight.Bold else FontWeight.Normal
+                        )
+                        IconButton(
+                            onClick = { 重命名对话弹窗 = 会话 },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Edit,
+                                contentDescription = "改名",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { 删对话确认 = 会话 },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = "删除",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        HorizontalDivider()
+        // 底部：工作中心、代码仓、充值、个人中心
+        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(
+                onClick = {
+                    状态.开工作中心页()
+                    关抽屉()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("工作中心")
+            }
+            TextButton(
+                onClick = {
+                    状态.开代码仓页()
+                    关抽屉()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("代码仓")
+            }
+            TextButton(
+                onClick = {
+                    状态.开充值页()
+                    关抽屉()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("💰 充值")
+            }
+            TextButton(
+                onClick = {
+                    状态.开个人中心页()
+                    关抽屉()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("👤 ${状态.我的.value.用户名.ifBlank { "个人中心" }}")
+            }
+        }
+    }
+    // --- 弹窗们 ---
+    if (新建项目弹窗) {
+        输入弹窗(
+            标题 = "新建项目",
+            初值 = "",
+            确认文本 = "创建",
+            取消 = { 新建项目弹窗 = false }
+        ) { 名称 ->
+            状态.新建项目(名称)
+            新建项目弹窗 = false
+        }
+    }
+    if (重命名项目弹窗) {
+        输入弹窗(
+            标题 = "重命名项目",
+            初值 = 状态.当前项目.value?.名称 ?: "",
+            确认文本 = "保存",
+            取消 = { 重命名项目弹窗 = false }
+        ) { 新名 ->
+            状态.当前项目.value?.let { 状态.重命名项目(it, 新名) }
+            重命名项目弹窗 = false
+        }
+    }
+    if (删项目确认) {
+        AlertDialog(
+            onDismissRequest = { 删项目确认 = false },
+            title = { Text("确认删除") },
+            text = { Text("删除项目会同时删除项目下的所有对话，确定吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    状态.当前项目.value?.let { 状态.删除项目(it) }
+                    删项目确认 = false
+                }) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { 删项目确认 = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+    if (新建对话弹窗) {
+        输入弹窗(
+            标题 = "新建对话",
+            初值 = "",
+            确认文本 = "创建",
+            取消 = { 新建对话弹窗 = false }
+        ) { 标题 ->
+            状态.新建对话(标题)
+            新建对话弹窗 = false
+            关抽屉()
+        }
+    }
+    重命名对话弹窗?.let { 会话 ->
+        输入弹窗(
+            标题 = "重命名对话",
+            初值 = 会话.标题,
+            确认文本 = "保存",
+            取消 = { 重命名对话弹窗 = null }
+        ) { 新标题 ->
+            状态.重命名对话(会话, 新标题)
+            重命名对话弹窗 = null
+        }
+    }
+    删对话确认?.let { 会话 ->
+        AlertDialog(
+            onDismissRequest = { 删对话确认 = null },
+            title = { Text("确认删除") },
+            text = { Text("删除对话「${会话.标题}」？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    状态.删除对话(会话)
+                    删对话确认 = null
+                }) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { 删对话确认 = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+}
+
+/**
+ * 通用输入弹窗
+ */
+@Composable
+private fun 输入弹窗(
+    标题: String,
+    初值: String,
+    确认文本: String,
+    取消: () -> Unit,
+    确认: (String) -> Unit
+) {
+    var 草稿 by remember { mutableStateOf(初值) }
+    AlertDialog(
+        onDismissRequest = 取消,
+        title = { Text(标题) },
+        text = {
+            OutlinedTextField(
+                value = 草稿,
+                onValueChange = { 草稿 = it },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (草稿.isNotBlank()) 确认(草稿.trim()) },
+                enabled = 草稿.isNotBlank()
+            ) {
+                Text(确认文本)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = 取消) {
+                Text("取消")
+            }
+        }
+    )
+}

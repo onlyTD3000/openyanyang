@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 资源名必须是 ASCII，aapt2 不接受中文标识符。
+         主题细节交给 Compose 的 MaterialTheme，这里只给个不带 ActionBar 的空壳 -->
+    <style name="Theme.YanYang" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

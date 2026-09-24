@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<!-- 只允许本地资源和到服务端的 ws 连接，终端窗口不加载任何外部脚本 -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src wss://codex.77bot.cn; img-src data:;">
+<title>SSH 终端</title>
+<link rel="stylesheet" href="vendor/xterm.css">
+<style>
+  html, body { margin: 0; height: 100%; background: #12141a; overflow: hidden; }
+  body { display: flex; flex-direction: column; font: 13px/1.5 "Microsoft YaHei", sans-serif; }
+  /* 状态条：显示连接进度和目标主机，出错时变红 */
+  #状态条 {
+    flex: 0 0 auto; padding: 6px 12px; color: #9aa4b2; background: #1a1d26;
+    border-bottom: 1px solid #2a2f3a; display: flex; align-items: center; gap: 10px;
+    user-select: none; -webkit-app-region: drag;
+  }
+  #状态点 { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; flex: 0 0 auto; }
+  #状态点.连上 { background: #10b981; }
+  #状态点.出错 { background: #ef4444; }
+  #状态文 { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #重连钮 {
+    -webkit-app-region: no-drag;
+    padding: 3px 10px; font-size: 12px; color: #cbd5e1; cursor: pointer;
+    background: #262b36; border: 1px solid #3a404d; border-radius: 4px;
+  }
+  #重连钮:hover { background: #2f353f; }
+  #重连钮[hidden] { display: none; }
+  /* 配置钮跟重连钮同一套样式，共用 .条钮 */
+  .条钮 {
+    -webkit-app-region: no-drag;
+    padding: 3px 10px; font-size: 12px; color: #cbd5e1; cursor: pointer;
+    background: #262b36; border: 1px solid #3a404d; border-radius: 4px;
+  }
+  .条钮:hover { background: #2f353f; }
+  .条钮:disabled { opacity: .5; cursor: default; }
+  /* 配置面板：盖在终端上方，不挤占终端空间，也不打断已有输出 */
+  #配置层 {
+    position: fixed; inset: 0; background: rgba(8,10,14,.72);
+    display: flex; align-items: center; justify-content: center; z-index: 50;
+  }
+  #配置层[hidden] { display: none; }
+  #配置框 {
+    width: min(680px, 92vw); max-height: 86vh; display: flex; flex-direction: column;
+    background: #1a1d26; border: 1px solid #2f3542; border-radius: 8px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+  #配置头 {
+    flex: 0 0 auto; padding: 10px 14px; border-bottom: 1px solid #2a2f3a;
+    display: flex; align-items: center; gap: 10px; color: #e2e8f0; font-size: 13px;
+  }
+  #配置头 b { flex: 1 1 auto; font-weight: 600; }
+  #配置体 {
+    flex: 1 1 auto; overflow: auto; padding: 4px 0;
+  }
+  /* 每组一个小标题加一段等宽正文，等宽是必须的：
+     lscpu / df 的输出靠空格对齐，换成变宽字体列就全歪了 */
+  .组 { padding: 10px 14px; border-bottom: 1px solid #23283200; }
+  .组 h4 {
+    margin: 0 0 6px; font-size: 12px; color: #7c8798; font-weight: 600;
+    letter-spacing: .3px;
+  }
+  .组 pre {
+    margin: 0; font: 12px/1.55 Consolas, "Courier New", monospace;
+    color: #cdd4de; white-space: pre; overflow-x: auto;
+  }
+  #配置提示 { padding: 18px 14px; color: #9aa4b2; font-size: 13px; }
+  /* 终端容器：留一点内边距，光标贴边不好看 */
+  #终端 { flex: 1 1 auto; min-height: 0; padding: 6px 8px; }
+</style>
+</head>
+<body>
+  <div id="状态条">
+    <span id="状态点"></span>
+    <span id="状态文">准备连接…</span>
+    <button id="文件钮" class="条钮" type="button">文件管理</button>
+    <button id="配置钮" class="条钮" type="button">查看配置</button>
+    <button id="重连钮" type="button" hidden>重新连接</button>
+  </div>
+  <div id="终端"></div>
+  <!-- 配置面板。默认隐藏，点「查看配置」才拉起 -->
+  <div id="配置层" hidden>
+    <div id="配置框">
+      <div id="配置头">
+        <b>服务器配置</b>
+        <button id="配置复制" class="条钮" type="button">复制</button>
+        <button id="配置刷新" class="条钮" type="button">重新采集</button>
+        <button id="配置关" class="条钮" type="button">关闭</button>
+      </div>
+      <div id="配置体"><div id="配置提示">正在采集…</div></div>
+    </div>
+  </div>
+  <!-- xterm 是 UMD 包，开头会先看 module/exports 存不存在。
+       Electron 渲染页里这两个变量是有的（preload 走 CommonJS），
+       于是 xterm 把自己导出到 module.exports，不挂 window.Terminal，
+       term.js 里 new Terminal() 就直接报 Terminal is not defined。
+       加载前先把这两个变量藏起来，逼 UMD 走挂全局那条分支。 -->
+  <script>
+    window.__原module = window.module; window.__原exports = window.exports;
+    window.module = undefined; window.exports = undefined;
+  </script>
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/xterm-addon-fit.js"></script>
+  <script>
+    window.module = window.__原module; window.exports = window.__原exports;
+    delete window.__原module; delete window.__原exports;
+  </script>
+  <script src="term.js"></script>
+</body>
+</html>

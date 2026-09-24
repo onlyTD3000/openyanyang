@@ -1,0 +1,13 @@
+{
+    "name": "77bot/code",
+    "description": "code.77bot.cn 站点依赖",
+    "type": "project",
+    "require": {
+        "php": ">=7.4",
+        "phpseclib/phpseclib": "^3.0"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>页面不存在 · 云智 AI Agent 平台</title>
+<style>
+:root{
+  --c-bg:#f7f8fa; --c-panel:#fff; --c-border:#e5e7eb;
+  --c-text:#1f2329; --c-text-2:#5f6672; --c-muted:#9aa1ac;
+  --c-primary:#1f5eff; --c-primary-dark:#1a4fd8;
+  --radius:10px; --shadow-lg:0 8px 28px rgba(16,24,40,.10);
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  min-height:100vh; display:flex; align-items:center; justify-content:center;
+  background:var(--c-bg); color:var(--c-text); font-family:var(--font); padding:24px;
+}
+.card{
+  width:100%; max-width:440px; background:var(--c-panel);
+  border:1px solid var(--c-border); border-radius:var(--radius);
+  box-shadow:var(--shadow-lg); padding:44px 36px; text-align:center;
+}
+.code{
+  font-size:72px; font-weight:700; line-height:1;
+  background:linear-gradient(135deg,var(--c-primary),#6b8cff);
+  -webkit-background-clip:text; background-clip:text;
+  -webkit-text-fill-color:transparent; color:var(--c-primary);
+}
+h1{font-size:20px; font-weight:600; margin:18px 0 10px}
+p{font-size:14px; color:var(--c-text-2); line-height:1.7}
+.actions{display:flex; gap:12px; justify-content:center; margin-top:28px; flex-wrap:wrap}
+.btn{
+  display:inline-block; padding:10px 22px; font-size:14px; border-radius:7px;
+  text-decoration:none; transition:.15s; border:1px solid transparent;
+}
+.btn-primary{background:var(--c-primary); color:#fff}
+.btn-primary:hover{background:var(--c-primary-dark)}
+.btn-ghost{background:#fff; color:var(--c-text-2); border-color:var(--c-border)}
+.btn-ghost:hover{border-color:var(--c-primary); color:var(--c-primary)}
+.foot{margin-top:32px; font-size:12px; color:var(--c-muted)}
+@media (max-width:480px){
+  .card{padding:32px 22px}
+  .code{font-size:56px}
+}
+</style>
+</head>
+<body>
+  <main class="card" role="main">
+    <div class="code" aria-hidden="true">404</div>
+    <h1>没有找到这个页面</h1>
+    <p>链接可能已经失效，或者地址输入有误。<br>你可以回到首页重新开始。</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="/">返回首页</a>
+      <a class="btn btn-ghost" href="javascript:history.back()">回上一页</a>
+    </div>
+    <div class="foot">云智 AI Agent 平台</div>
+  </main>
+</body>
+</html>
